@@ -1,14 +1,13 @@
 package view
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"log"
 	"sync"
 
+	"ebay.com/protobeam/msg"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
@@ -25,7 +24,7 @@ func New(c sarama.Consumer, numPartitions uint32) (*Views, error) {
 	for i := uint32(0); i < numPartitions; i++ {
 		v.p[i].numPartitions = numPartitions
 		v.p[i].partition = i
-		v.p[i].messages = make(chan parsedMsg, 16)
+		v.p[i].messages = make(chan msg.Parsed, 16)
 		v.p[i].values = make(map[string]string, 16)
 	}
 	return &v, nil
@@ -42,7 +41,7 @@ func (v *Views) Start() {
 			go v.p[i].start()
 		}
 		for m := range v.consumer.Messages() {
-			parsed, err := decode(m)
+			parsed, err := msg.Decode(m)
 			if err != nil {
 				fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
 				continue
@@ -59,45 +58,18 @@ func (v *Views) Fetch(k string) (string, bool) {
 	return v.p[pIdx].fetch(k)
 }
 
-func decode(m *sarama.ConsumerMessage) (parsedMsg, error) {
-	if len(m.Value) == 0 {
-		return parsedMsg{}, errors.New("Message value has zero length")
-	}
-	t := msgType(m.Value[0])
-	if t == msgWrite {
-		var body writeKeyValueMessage
-		err := json.Unmarshal(m.Value[1:], &body)
-		return parsedMsg{msgWrite, body}, err
-	}
-	return parsedMsg{t, nil}, fmt.Errorf("Unexpected message type of '%v'", t)
-}
-
-type msgType uint8
-
-const msgWrite msgType = 'W'
-
-type parsedMsg struct {
-	msgType msgType
-	body    interface{}
-}
-
-type writeKeyValueMessage struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
 type partition struct {
 	sync.RWMutex
 	numPartitions uint32
 	partition     uint32
-	messages      chan parsedMsg
+	messages      chan msg.Parsed
 	values        map[string]string
 }
 
 func (p *partition) start() {
 	for pm := range p.messages {
-		if pm.msgType == msgWrite {
-			body := pm.body.(writeKeyValueMessage)
+		if pm.MsgType == msg.Write {
+			body := pm.Body.(msg.WriteKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
 				p.Lock()
 				p.values[body.Key] = body.Value
