@@ -1,26 +1,44 @@
 package api
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/julienschmidt/httprouter"
 )
 
-func New(addr string) *Server {
-	return &Server{addr: addr}
+type KVSource interface {
+	Fetch(k string) (string, bool)
+}
+
+func New(addr string, src KVSource) *Server {
+	return &Server{
+		addr:   addr,
+		source: src,
+	}
 }
 
 type Server struct {
-	addr string
+	addr   string
+	source KVSource
 }
 
 func (s *Server) Run() error {
 	m := httprouter.New()
-	m.GET("/", s.index)
+	m.GET("/k", s.fetch)
 	return http.ListenAndServe(s.addr, m)
 }
 
-func (s *Server) index(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	io.WriteString(w, "hello world\n")
+func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+	k := r.URL.Query().Get("k")
+	v, exists := s.source.Fetch(k)
+	if !exists {
+		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, "key '%v' doesn't exist\n", k)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, v)
+	io.WriteString(w, "\n")
 }

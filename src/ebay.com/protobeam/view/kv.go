@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"sync"
 
 	"gopkg.in/Shopify/sarama.v1"
 )
@@ -53,6 +54,11 @@ func (v *Views) Start() {
 	}()
 }
 
+func (v *Views) Fetch(k string) (string, bool) {
+	pIdx := hash(k, uint32(len(v.p)))
+	return v.p[pIdx].fetch(k)
+}
+
 func decode(m *sarama.ConsumerMessage) (parsedMsg, error) {
 	if len(m.Value) == 0 {
 		return parsedMsg{}, errors.New("Message value has zero length")
@@ -81,6 +87,7 @@ type writeKeyValueMessage struct {
 }
 
 type partition struct {
+	sync.RWMutex
 	numPartitions uint32
 	partition     uint32
 	messages      chan parsedMsg
@@ -92,11 +99,20 @@ func (p *partition) start() {
 		if pm.msgType == msgWrite {
 			body := pm.body.(writeKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
+				p.Lock()
 				p.values[body.Key] = body.Value
+				p.Unlock()
 				fmt.Printf("%d: Adding %v = %v\n", p.partition, body.Key, body.Value)
 			}
 		}
 	}
+}
+
+func (p *partition) fetch(k string) (string, bool) {
+	p.RLock()
+	v, exists := p.values[k]
+	p.RUnlock()
+	return v, exists
 }
 
 func hash(k string, sz uint32) uint32 {

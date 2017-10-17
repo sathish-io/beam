@@ -24,6 +24,6 @@ func main() {
 	}
 	v.Start()
 
-	s := api.New("localhost:9988")
+	s := api.New("localhost:9988", v)
 	fmt.Printf("%v\n", s.Run())
 }
