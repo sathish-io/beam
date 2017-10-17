@@ -22,6 +22,7 @@ func New(c sarama.Consumer, numPartitions uint32) (*Views, error) {
 		consumer: pc,
 	}
 	for i := uint32(0); i < numPartitions; i++ {
+		v.p[i].numPartitions = numPartitions
 		v.p[i].partition = i
 		v.p[i].messages = make(chan parsedMsg, 16)
 		v.p[i].values = make(map[string]string, 16)
@@ -75,8 +76,8 @@ type parsedMsg struct {
 }
 
 type writeKeyValueMessage struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type partition struct {
@@ -92,7 +93,7 @@ func (p *partition) start() {
 			body := pm.body.(writeKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
 				p.values[body.Key] = body.Value
-				fmt.Printf("Adding %v = %v", body.Key, body.Value)
+				fmt.Printf("%d: Adding %v = %v\n", p.partition, body.Key, body.Value)
 			}
 		}
 	}
