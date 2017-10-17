@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 
+	"ebay.com/protobeam/api"
+	"ebay.com/protobeam/view"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
@@ -15,13 +17,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to start consumer: %v", err)
 	}
-	pc, err := c.ConsumePartition("beam", 0, 0)
-	if err != nil {
-		log.Fatalf("Unable to start partition consumer: %v", c)
-	}
 
-	fmt.Println("Listening for messages on the beam/0 topic/partition")
-	for m := range pc.Messages() {
-		fmt.Printf("%v\n", m)
+	v, err := view.New(c, 4)
+	if err != nil {
+		log.Fatalf("Unable to initialize view: %v", err)
 	}
+	v.Start()
+
+	s := api.New("localhost:9988")
+	fmt.Printf("%v\n", s.Run())
 }
