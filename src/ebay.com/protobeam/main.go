@@ -22,6 +22,6 @@ func main() {
 
 	fmt.Println("Listening for messages on the beam/0 topic/partition")
 	for m := range pc.Messages() {
-		fmt.Printf("%v\n", m)
+		fmt.Printf("%+v\n", m)
 	}
 }
