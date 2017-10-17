@@ -75,8 +75,8 @@ type parsedMsg struct {
 }
 
 type writeKeyValueMessage struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
 }
 
 type partition struct {
@@ -92,6 +92,7 @@ func (p *partition) start() {
 			body := pm.body.(writeKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
 				p.values[body.Key] = body.Value
+				fmt.Printf("Adding %v = %v", body.Key, body.Value)
 			}
 		}
 	}
