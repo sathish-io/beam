@@ -3,6 +3,7 @@ Description=Beam Partition
 
 [Service]
 User=stack
+Restart=on-failure
 WorkingDirectory=/home/stack/protobeam/
 ExecStart=/home/stack/protobeam/cluster/startpartition.sh -cfg c3.json
 
