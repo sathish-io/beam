@@ -34,4 +34,5 @@ test:
 	go test ${PACKAGE}/...
 
 run:
-	bin/protobeam
+	# go goreman from https://github.com/mattn/goreman
+	goreman start

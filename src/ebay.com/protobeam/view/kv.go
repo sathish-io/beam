@@ -8,67 +8,53 @@ import (
 	"sync"
 	"time"
 
+	"ebay.com/protobeam/config"
 	"ebay.com/protobeam/msg"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
-func New(c sarama.Consumer, producer sarama.SyncProducer, numPartitions uint32) (*Views, error) {
+func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *config.Beam) (*Views, error) {
 	pc, err := c.ConsumePartition("beam", 0, 0)
 	if err != nil {
 		log.Fatalf("Unable to start partition consumer: %v", c)
 	}
 	fmt.Println("Listening for messages on the beam/0 topic/partition")
 	v := Views{
-		p:        make([]partition, numPartitions),
+		p: partition{
+			producer:      producer,
+			numPartitions: uint32(len(cfg.Partitions)),
+			partition:     uint32(cfg.Partition),
+			messages:      make(chan msg.Parsed, 16),
+			values:        make(map[string][]value, 16),
+			transactions:  make(map[int64]transaction, 16),
+			addr:          cfg.Partitions[cfg.Partition],
+		},
 		consumer: pc,
-	}
-	for i := uint32(0); i < numPartitions; i++ {
-		v.p[i].producer = producer
-		v.p[i].numPartitions = numPartitions
-		v.p[i].partition = i
-		v.p[i].messages = make(chan msg.Parsed, 16)
-		v.p[i].values = make(map[string][]value, 16)
-		v.p[i].transactions = make(map[int64]transaction, 16)
 	}
 	return &v, nil
 }
 
 type Views struct {
-	p        []partition
+	p        partition
 	consumer sarama.PartitionConsumer
 }
 
-func (v *Views) Start() {
+func (v *Views) Start() error {
+	if err := startServer(v.p.addr, &v.p); err != nil {
+		return err
+	}
 	go func() {
-		for i := range v.p {
-			go v.p[i].start()
-		}
 		for m := range v.consumer.Messages() {
 			parsed, err := msg.Decode(m)
 			if err != nil {
 				fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
 				continue
 			}
-			for i := range v.p {
-				v.p[i].messages <- parsed
-			}
+			v.p.messages <- parsed
 		}
 	}()
-}
-
-func (v *Views) Fetch(k string) (string, int64) {
-	pIdx := hash(k, uint32(len(v.p)))
-	return v.p[pIdx].fetch(k)
-}
-
-func (v *Views) FetchAt(k string, idx int64) (string, int64) {
-	pIdx := hash(k, uint32(len(v.p)))
-	return v.p[pIdx].fetchAt(k, idx)
-}
-
-func (v *Views) Check(key string, start int64, through int64) (ok bool, pending bool) {
-	pIdx := hash(key, uint32(len(v.p)))
-	return v.p[pIdx].check(key, start, through)
+	go v.p.start()
+	return nil
 }
 
 type partition struct {
@@ -76,6 +62,7 @@ type partition struct {
 	atIndex int64              // the index from the log we've processed [protected by RWMutex]
 	values  map[string][]value // [protected by RWMutex]
 
+	addr          string
 	numPartitions uint32
 	partition     uint32
 	messages      chan msg.Parsed
@@ -92,6 +79,10 @@ type value struct {
 type transaction struct {
 	keys    []string
 	started time.Time
+}
+
+func (t transaction) String() string {
+	return fmt.Sprintf("tx keys:%v started:%v", t.keys, t.started.Format(time.RFC3339Nano))
 }
 
 func (p *partition) start() {
@@ -205,7 +196,7 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 		return
 	}
 	delete(p.transactions, body.Tx)
-	fmt.Printf("%d: Processing decision %+v @ %v of tx %+v\n", p.partition, body, pm.Index, tx)
+	fmt.Printf("%d: Processing decision %+v @ %v of %v\n", p.partition, body, pm.Index, tx)
 	if body.Commit {
 		for _, key := range tx.keys {
 			values := p.values[key]
