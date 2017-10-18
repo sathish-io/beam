@@ -27,6 +27,10 @@ fetch the latest non-pending value of a key:
 
   $ curl http://localhost:9988/k?k=./NOTICE
 
+fetch the value of a key at a particular index:
+
+  $ curl "http://localhost:9988/k?k=./NOTICE&idx=123"
+
 write a key:
 
   $ curl http://localhost:9988/k?k=./NOTICE -d 'ver'
