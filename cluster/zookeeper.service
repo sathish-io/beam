@@ -1,0 +1,10 @@
+[Unit]
+Description=ZooKeeper
+
+[Service]
+User=stack
+WorkingDirectory=/home/stack/kafka_2.11-0.11.0.1/
+ExecStart=/home/stack/kafka_2.11-0.11.0.1/bin/zookeeper-server-start.sh config/zookeeper.properties
+
+[Install]
+WantedBy=multi-user.target
