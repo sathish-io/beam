@@ -12,7 +12,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 )
 
-func partitionMux(p *partition) http.Handler {
+func partitionMux(p *Partition) http.Handler {
 	m := httprouter.New()
 	ps := partitionServer{p}
 	m.GET("/fetch", ps.fetch)
@@ -21,7 +21,7 @@ func partitionMux(p *partition) http.Handler {
 	return m
 }
 
-func startServer(addr string, p *partition) error {
+func startServer(addr string, p *Partition) error {
 	addr = fiddleAddr(addr)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -52,7 +52,7 @@ func fiddleAddr(a string) string {
 }
 
 type partitionServer struct {
-	p *partition
+	p *Partition
 }
 
 func (s *partitionServer) fetch(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

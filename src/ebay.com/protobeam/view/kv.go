@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
-	"log"
 	"sync"
 	"time"
 
@@ -13,61 +12,45 @@ import (
 	"gopkg.in/Shopify/sarama.v1"
 )
 
-func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *config.Beam) (*Views, error) {
+func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *config.Beam) (*Partition, error) {
 	pc, err := c.ConsumePartition("beam", 0, 0)
 	if err != nil {
-		log.Fatalf("Unable to start partition consumer: %v", c)
+		return nil, fmt.Errorf("Unable to start partition consumer: %v", err)
 	}
 	fmt.Println("Listening for messages on the beam/0 topic/partition")
-	v := Views{
-		p: partition{
-			producer:      producer,
-			numPartitions: uint32(len(cfg.Partitions)),
-			partition:     uint32(cfg.Partition),
-			messages:      make(chan msg.Parsed, 16),
-			values:        make(map[string][]value, 16),
-			transactions:  make(map[int64]transaction, 16),
-			addr:          cfg.Partitions[cfg.Partition],
-		},
-		consumer: pc,
+	p := Partition{
+		producer:      producer,
+		consumer:      pc,
+		numPartitions: uint32(len(cfg.Partitions)),
+		partition:     uint32(cfg.Partition),
+		values:        make(map[string][]value, 16),
+		transactions:  make(map[int64]transaction, 16),
+		addr:          cfg.Partitions[cfg.Partition],
 	}
-	return &v, nil
+	return &p, nil
 }
 
-type Views struct {
-	p        partition
-	consumer sarama.PartitionConsumer
-}
-
-func (v *Views) Start() error {
-	if err := startServer(v.p.addr, &v.p); err != nil {
+func (p *Partition) Start() error {
+	// create & start the API server for this partition
+	if err := startServer(p.addr, p); err != nil {
 		return err
 	}
-	go func() {
-		for m := range v.consumer.Messages() {
-			parsed, err := msg.Decode(m)
-			if err != nil {
-				fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
-				continue
-			}
-			v.p.messages <- parsed
-		}
-	}()
-	go v.p.start()
+	// start processing data from the log
+	go p.start()
 	return nil
 }
 
-type partition struct {
-	sync.RWMutex
-	atIndex int64              // the index from the log we've processed [protected by RWMutex]
-	values  map[string][]value // [protected by RWMutex]
+type Partition struct {
+	lock         sync.RWMutex
+	atIndex      int64                 // the index from the log we've processed [protected by lock]
+	values       map[string][]value    // [protected by lock]
+	transactions map[int64]transaction // [protected by lock]
 
 	addr          string
 	numPartitions uint32
 	partition     uint32
-	messages      chan msg.Parsed
-	transactions  map[int64]transaction
 	producer      sarama.SyncProducer
+	consumer      sarama.PartitionConsumer
 }
 
 type value struct {
@@ -85,11 +68,16 @@ func (t transaction) String() string {
 	return fmt.Sprintf("tx keys:%v started:%v", t.keys, t.started.Format(time.RFC3339Nano))
 }
 
-func (p *partition) start() {
+func (p *Partition) start() {
 	txTimeoutTimer := time.NewTicker(txTimeout / 3)
 	for {
 		select {
-		case pm := <-p.messages:
+		case km := <-p.consumer.Messages():
+			pm, err := msg.Decode(km)
+			if err != nil {
+				fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
+				continue
+			}
 			p.apply(pm)
 
 		case now := <-txTimeoutTimer.C:
@@ -102,15 +90,15 @@ var txTimeout = time.Second * 3
 
 // timeoutTransactions will write abort descision for any transaction that been running
 // longer than the tx timeout.
-func (p *partition) timeoutTransactions(now time.Time) {
+func (p *Partition) timeoutTransactions(now time.Time) {
 	toAbort := make([]int64, 0, 4)
-	p.Lock()
+	p.lock.Lock()
 	for idx, tx := range p.transactions {
 		if now.Sub(tx.started) > txTimeout {
 			toAbort = append(toAbort, idx)
 		}
 	}
-	p.Unlock()
+	p.lock.Unlock()
 	for _, idx := range toAbort {
 		fmt.Printf("%d: Transaction Watcher: Aborting %d\n", p.partition, idx)
 		m := msg.DecisionMessage{Tx: idx, Commit: false}
@@ -129,7 +117,7 @@ func (p *partition) timeoutTransactions(now time.Time) {
 	}
 }
 
-func (p *partition) apply(pm msg.Parsed) {
+func (p *Partition) apply(pm msg.Parsed) {
 	switch pm.MsgType {
 	case msg.Write:
 		p.applyWrite(pm)
@@ -140,23 +128,23 @@ func (p *partition) apply(pm msg.Parsed) {
 	}
 }
 
-func (p *partition) applyWrite(pm msg.Parsed) {
+func (p *Partition) applyWrite(pm msg.Parsed) {
 	body := pm.Body.(*msg.WriteKeyValueMessage)
 	if p.owns(body.Key) {
 		fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
-		p.Lock()
+		p.lock.Lock()
 		p.values[body.Key] = append(p.values[body.Key],
 			value{index: pm.Index, value: body.Value, pending: false})
 		p.atIndex = pm.Index
-		p.Unlock()
+		p.lock.Unlock()
 	} else {
-		p.Lock()
+		p.lock.Lock()
 		p.atIndex = pm.Index
-		p.Unlock()
+		p.lock.Unlock()
 	}
 }
 
-func (p *partition) applyTransaction(pm msg.Parsed) {
+func (p *Partition) applyTransaction(pm msg.Parsed) {
 	body := pm.Body.(*msg.TransactionMessage)
 	tx := transaction{
 		started: time.Now(),
@@ -168,13 +156,13 @@ func (p *partition) applyTransaction(pm msg.Parsed) {
 		}
 	}
 	if len(tx.keys) == 0 {
-		p.Lock()
+		p.lock.Lock()
 		p.atIndex = pm.Index
-		p.Unlock()
+		p.lock.Unlock()
 		return
 	}
 	fmt.Printf("%d: Processing transaction %+v @ %v\n", p.partition, body, pm.Index)
-	p.Lock()
+	p.lock.Lock()
 	p.transactions[pm.Index] = tx
 	for _, write := range body.Writes {
 		if p.owns(write.Key) {
@@ -183,13 +171,13 @@ func (p *partition) applyTransaction(pm msg.Parsed) {
 		}
 	}
 	p.atIndex = pm.Index
-	p.Unlock()
+	p.lock.Unlock()
 }
 
-func (p *partition) applyDecision(pm msg.Parsed) {
+func (p *Partition) applyDecision(pm msg.Parsed) {
 	body := pm.Body.(*msg.DecisionMessage)
-	p.Lock()
-	defer p.Unlock()
+	p.lock.Lock()
+	defer p.lock.Unlock()
 	p.atIndex = pm.Index
 	tx, exists := p.transactions[body.Tx]
 	if !exists {
@@ -220,10 +208,10 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 	}
 }
 
-func (p *partition) fetchAt(key string, idx int64) (string, int64) {
-	p.RLock()
+func (p *Partition) fetchAt(key string, idx int64) (string, int64) {
+	p.lock.RLock()
 	versions := p.values[key]
-	p.RUnlock()
+	p.lock.RUnlock()
 	// For now, this returns earlier versions when transaction outcomes are unknown.
 	for i := len(versions) - 1; i >= 0; i-- {
 		if versions[i].pending {
@@ -239,10 +227,10 @@ func (p *partition) fetchAt(key string, idx int64) (string, int64) {
 	return "", 0
 }
 
-func (p *partition) fetch(key string) (string, int64) {
-	p.RLock()
+func (p *Partition) fetch(key string) (string, int64) {
+	p.lock.RLock()
 	versions := p.values[key]
-	p.RUnlock()
+	p.lock.RUnlock()
 	// For now, this returns earlier versions when transaction outcomes are unknown.
 	for i := len(versions) - 1; i >= 0; i-- {
 		if versions[i].pending {
@@ -255,9 +243,9 @@ func (p *partition) fetch(key string) (string, int64) {
 	return "", 0
 }
 
-func (p *partition) check(key string, start int64, through int64) (ok bool, pending bool) {
-	p.RLock()
-	defer p.RUnlock()
+func (p *Partition) check(key string, start int64, through int64) (ok bool, pending bool) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
 	ok = true
 	pending = p.atIndex < through
 	for _, version := range p.values[key] {
@@ -269,7 +257,7 @@ func (p *partition) check(key string, start int64, through int64) (ok bool, pend
 	return
 }
 
-func (p *partition) owns(key string) bool {
+func (p *Partition) owns(key string) bool {
 	return hash(key, p.numPartitions) == p.partition
 }
 
