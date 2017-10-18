@@ -43,3 +43,7 @@ commit or abort it:
 
     $ curl http://localhost:9988/append -d 'D{"tx": 167, "commit": true}'
     $ curl http://localhost:9988/append -d 'D{"tx": 173, "commit": false}'
+
+run a transaction that sets `val[k3]` to `sprintf("%s+%s", val[k1], val[k2])`:
+
+    $ curl 'http://localhost:9988/concat?k1=./first&k2=./second&k3=./third' -d ''
