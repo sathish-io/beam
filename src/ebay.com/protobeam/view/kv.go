@@ -71,10 +71,12 @@ func (v *Views) Check(key string, start int64, through int64) (ok bool, pending 
 
 type partition struct {
 	sync.RWMutex
+	atIndex int64              // the index from the log we've processed [protected by RWMutex]
+	values  map[string][]value // [protected by RWMutex]
+
 	numPartitions uint32
 	partition     uint32
 	messages      chan msg.Parsed
-	values        map[string][]value
 	transactions  map[int64]transaction
 }
 
@@ -103,11 +105,16 @@ func (p *partition) start() {
 
 func (p *partition) applyWrite(pm msg.Parsed) {
 	body := pm.Body.(*msg.WriteKeyValueMessage)
-	if hash(body.Key, p.numPartitions) == p.partition {
+	if p.owns(body.Key) {
 		fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
 		p.Lock()
 		p.values[body.Key] = append(p.values[body.Key],
 			value{index: pm.Index, value: body.Value, pending: false})
+		p.atIndex = pm.Index
+		p.Unlock()
+	} else {
+		p.Lock()
+		p.atIndex = pm.Index
 		p.Unlock()
 	}
 }
@@ -123,6 +130,9 @@ func (p *partition) applyTransaction(pm msg.Parsed) {
 		}
 	}
 	if len(tx.keys) == 0 {
+		p.Lock()
+		p.atIndex = pm.Index
+		p.Unlock()
 		return
 	}
 	fmt.Printf("%d: Processing transaction %+v @ %v\n", p.partition, body, pm.Index)
@@ -134,6 +144,7 @@ func (p *partition) applyTransaction(pm msg.Parsed) {
 				value{index: pm.Index, value: write.Value, pending: true})
 		}
 	}
+	p.atIndex = pm.Index
 	p.Unlock()
 }
 
@@ -141,6 +152,7 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 	body := pm.Body.(*msg.DecisionMessage)
 	p.Lock()
 	defer p.Unlock()
+	p.atIndex = pm.Index
 	tx, ok := p.transactions[body.Tx]
 	delete(p.transactions, body.Tx)
 	if !ok {
@@ -209,7 +221,7 @@ func (p *partition) check(key string, start int64, through int64) (ok bool, pend
 	p.RLock()
 	defer p.RUnlock()
 	ok = true
-	pending = false
+	pending = p.atIndex < through
 	for _, version := range p.values[key] {
 		if version.index > start && version.index < through {
 			ok = false
