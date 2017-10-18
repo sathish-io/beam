@@ -76,22 +76,34 @@ func (p *partition) start() {
 	for pm := range p.messages {
 		switch pm.MsgType {
 		case msg.Write:
-			body := pm.Body.(*msg.WriteKeyValueMessage)
-			if hash(body.Key, p.numPartitions) == p.partition {
-				p.Lock()
-				p.values[body.Key] = append(p.values[body.Key],
-					value{index: pm.Index, value: body.Value, pending: false})
-				p.Unlock()
-				fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
-			}
+			p.applyWrite(pm)
 		case msg.Transaction:
-			body := pm.Body.(*msg.TransactionMessage)
-			fmt.Printf("%d: TODO: process transaction %+v @ %v\n", p.partition, body, pm.Index)
+			p.applyTransaction(pm)
 		case msg.Decision:
-			body := pm.Body.(*msg.DecisionMessage)
-			fmt.Printf("%d: TODO: process decision %+v @ %v\n", p.partition, body, pm.Index)
+			p.applyDecision(pm)
 		}
 	}
+}
+
+func (p *partition) applyWrite(pm msg.Parsed) {
+	body := pm.Body.(*msg.WriteKeyValueMessage)
+	if hash(body.Key, p.numPartitions) == p.partition {
+		fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
+		p.Lock()
+		p.values[body.Key] = append(p.values[body.Key],
+			value{index: pm.Index, value: body.Value, pending: false})
+		p.Unlock()
+	}
+}
+
+func (p *partition) applyTransaction(pm msg.Parsed) {
+	body := pm.Body.(*msg.TransactionMessage)
+	fmt.Printf("%d: TODO: process transaction %+v @ %v\n", p.partition, body, pm.Index)
+}
+
+func (p *partition) applyDecision(pm msg.Parsed) {
+	body := pm.Body.(*msg.DecisionMessage)
+	fmt.Printf("%d: TODO: process decision %+v @ %v\n", p.partition, body, pm.Index)
 }
 
 func (p *partition) fetch(k string) (string, bool) {
