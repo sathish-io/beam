@@ -126,7 +126,6 @@ func (p *partition) applyTransaction(pm msg.Parsed) {
 		if p.owns(write.Key) {
 			fmt.Printf("%d: Pending on transaction, adding %v = %v @ %v\n", p.partition, write.Key, write.Value, pm.Index)
 			tx.keys = append(tx.keys, write.Key)
-			break
 		}
 	}
 	if len(tx.keys) == 0 {
