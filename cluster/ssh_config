@@ -1,0 +1,14 @@
+host *.beam
+	user stack
+host kafka.beam
+	hostname 10.64.222.166
+host partition0.beam
+	hostname 10.64.222.167
+host partition1.beam
+	hostname 10.64.222.168
+host partition2.beam
+	hostname 10.64.222.169
+host partition3.beam
+	hostname 10.64.222.17
+host api.beam
+	hostname 10.64.222.170
