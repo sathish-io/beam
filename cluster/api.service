@@ -1,0 +1,10 @@
+[Unit]
+Description=Beam API Server
+
+[Service]
+User=stack
+WorkingDirectory=/home/stack/protobeam/
+ExecStart=/home/stack/protobeam/bin/protobeam -cfg c3.json -api 10.64.222.170:9988
+
+[Install]
+WantedBy=multi-user.target

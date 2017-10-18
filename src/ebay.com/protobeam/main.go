@@ -30,6 +30,7 @@ func main() {
 	if cfg.Partition < -1 || cfg.Partition >= len(cfg.Partitions) {
 		log.Fatalf("Partition Number (partition in config, or -p cmdline param) of '%d' isn't valid", cfg.Partition)
 	}
+	log.Printf("Using config: %+v", cfg)
 
 	kconfig := sarama.NewConfig()
 	kconfig.Producer.RequiredAcks = sarama.WaitForAll // Wait for all in-sync replicas to ack the message
