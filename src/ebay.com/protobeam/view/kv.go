@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"runtime"
 	"sync"
 	"time"
 
@@ -261,12 +262,20 @@ func (p *Partition) owns(key string) bool {
 	return hash(key, p.numPartitions) == p.partition
 }
 
-type Stats struct {
-	Partition uint32 `json:"partition"`
-	Keys      int    `json:"keys"`
-	Txs       int    `json:"txs"`
-	LastIndex int64  `json:"lastIndex"`
+type MemoryStats struct {
+	Heap uint64 `json:"heapMB"`
+	Sys  uint64 `json:"sysMB"`
 }
+
+type Stats struct {
+	Partition uint32      `json:"partition"`
+	Keys      int         `json:"keys"`
+	Txs       int         `json:"txs"`
+	LastIndex int64       `json:"lastIndex"`
+	MemStats  MemoryStats `json:"memStats"`
+}
+
+const oneMB = 1024 * 1024
 
 func (p *Partition) Stats() Stats {
 	p.lock.RLock()
@@ -277,6 +286,10 @@ func (p *Partition) Stats() Stats {
 		Partition: p.partition,
 	}
 	p.lock.RUnlock()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	s.MemStats.Heap = ms.Alloc / oneMB
+	s.MemStats.Sys = ms.Sys / oneMB
 	return s
 }
 
