@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,6 +38,7 @@ func (s *Server) Run() error {
 	m.POST("/k", s.writeOne)
 	m.POST("/append", s.append)
 	m.POST("/concat", s.concat)
+	m.POST("/fill", s.fill)
 	logger := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[API] %v %v\n", r.Method, r.URL)
 		m.ServeHTTP(w, r)
@@ -47,7 +49,7 @@ func (s *Server) Run() error {
 func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	stats, err := s.source.Stats()
 	if err != nil {
-		web.WriteError(w, http.StatusInternalServerError, "Failed to fetch stats: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Failed to fetch stats: %v\n", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -186,6 +188,27 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		return
 	}
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+}
+
+func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key-%08x", rand.Int31())
+		value := fmt.Sprintf("value-%08x", rand.Int31())
+		msgVal, err := msg.WriteKeyValueMessage{Key: key, Value: value}.Encode()
+		if err != nil {
+			web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
+			return
+		}
+		kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
+			Topic: "beam",
+			Value: sarama.ByteEncoder(msgVal),
+		})
+		if err != nil {
+			web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+			return
+		}
+		fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+	}
 }
 
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
