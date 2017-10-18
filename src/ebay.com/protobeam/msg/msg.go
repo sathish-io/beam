@@ -26,9 +26,17 @@ type WriteKeyValueMessage struct {
 	Value string `json:"value"`
 }
 
+func (w WriteKeyValueMessage) Encode() ([]byte, error) {
+	return encode(Write, w)
+}
+
 type TransactionMessage struct {
 	Cond   []Condition            `json:"cond"`
 	Writes []WriteKeyValueMessage `json:"writes"`
+}
+
+func (t TransactionMessage) Encode() ([]byte, error) {
+	return encode(Transaction, t)
 }
 
 type Condition struct {

@@ -61,10 +61,14 @@ func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.P
 		web.WriteError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
 		return
 	}
-	msgVal := fmt.Sprintf("W{\"Key\":\"%s\", \"Value\":\"%s\"}", k, v)
+	msgVal, err := msg.WriteKeyValueMessage{Key: k, Value: string(v)}.Encode()
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
+		return
+	}
 	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
-		Value: sarama.StringEncoder(msgVal),
+		Value: sarama.ByteEncoder(msgVal),
 	})
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
@@ -81,7 +85,7 @@ func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	}
 	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
-		Value: sarama.StringEncoder(v),
+		Value: sarama.ByteEncoder(v),
 	})
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
@@ -111,17 +115,24 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		web.WriteError(w, http.StatusInternalServerError, "Error reading starting values: %v", err)
 		return
 	}
-
-	msgVal := fmt.Sprintf("T{\"cond\": ["+
-		"{\"key\": \"%s\", \"index\": %d}, "+
-		"{\"key\": \"%s\", \"index\": %d}], "+
-		"\"writes\": ["+
-		"{\"key\": \"%s\", \"value\": \"%s+%s\"}]}",
-		k1, idx1, k2, idx2, k3, v1, v2)
+	txMsg := msg.TransactionMessage{
+		Cond: []msg.Condition{
+			{Key: k1, Index: idx1},
+			{Key: k2, Index: idx2},
+		},
+		Writes: []msg.WriteKeyValueMessage{
+			{Key: k3, Value: v1 + "+" + v2},
+		},
+	}
+	msgVal, err := txMsg.Encode()
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Unable to construct Transacton Message: %v", err)
+		return
+	}
 	fmt.Fprintf(w, "%s\n", msgVal)
 	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
-		Value: sarama.StringEncoder(msgVal),
+		Value: sarama.ByteEncoder(msgVal),
 	})
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)

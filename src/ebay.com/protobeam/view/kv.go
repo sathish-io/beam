@@ -104,7 +104,7 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 		m := msg.DecisionMessage{Tx: idx, Commit: false}
 		enc, err := m.Encode()
 		if err != nil {
-			fmt.Printf("%d: Error encdoing descision message: %v\n", err)
+			fmt.Printf("%d: Error encoding descision message: %v\n", err)
 			continue
 		}
 		_, _, err = p.producer.SendMessage(&sarama.ProducerMessage{
@@ -112,7 +112,7 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 			Value: sarama.ByteEncoder(enc),
 		})
 		if err != nil {
-			fmt.Printf("%d: Error writing abort descision: %v\n", p.partition, err)
+			fmt.Printf("%d: Error writing abort decision: %v\n", p.partition, err)
 		}
 	}
 }
