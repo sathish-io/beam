@@ -25,21 +25,21 @@ build & run protobeam [can use just `make build run` on subsequent builds]
 
 fetch the latest non-pending value of a key:
 
-  $ curl http://localhost:9988/k?k=./NOTICE
+    $ curl http://localhost:9988/k?k=./NOTICE
 
 fetch the value of a key at a particular index:
 
-  $ curl "http://localhost:9988/k?k=./NOTICE&idx=123"
+    $ curl "http://localhost:9988/k?k=./NOTICE&idx=123"
 
 write a key:
 
-  $ curl http://localhost:9988/k?k=./NOTICE -d 'ver'
+    $ curl http://localhost:9988/k?k=./NOTICE -d 'ver'
 
 start a transaction:
 
-  $ curl http://localhost:9988/append -d 'T{"cond": [{"key": "./NOTICE", "index": 163}], "writes": [{"key": "./NOTICE", "value": "txnew"}]}'
+    $ curl http://localhost:9988/append -d 'T{"cond": [{"key": "./NOTICE", "index": 163}], "writes": [{"key": "./NOTICE", "value": "txnew"}]}'
 
 commit or abort it:
 
-  $ curl http://localhost:9988/append -d 'D{"tx": 167, "commit": true}'
-  $ curl http://localhost:9988/append -d 'D{"tx": 173, "commit": false}'
+    $ curl http://localhost:9988/append -d 'D{"tx": 167, "commit": true}'
+    $ curl http://localhost:9988/append -d 'D{"tx": 173, "commit": false}'
