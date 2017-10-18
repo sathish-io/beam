@@ -45,7 +45,7 @@ func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 		return Parsed{}, errors.New("Message value has zero length")
 	}
 	res := Parsed{
-		Index:   m.Offset,
+		Index:   m.Offset + 1,
 		MsgType: MsgType(m.Value[0]),
 	}
 	var err error

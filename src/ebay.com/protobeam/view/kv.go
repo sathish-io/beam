@@ -54,9 +54,14 @@ func (v *Views) Start() {
 	}()
 }
 
-func (v *Views) Fetch(k string) (string, bool) {
+func (v *Views) Fetch(k string) (string, int64) {
 	pIdx := hash(k, uint32(len(v.p)))
 	return v.p[pIdx].fetch(k)
+}
+
+func (v *Views) Check(key string, start int64, through int64) (ok bool, pending bool) {
+	pIdx := hash(key, uint32(len(v.p)))
+	return v.p[pIdx].check(key, start, through)
 }
 
 type partition struct {
@@ -160,7 +165,7 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 	}
 }
 
-func (p *partition) fetch(key string) (string, bool) {
+func (p *partition) fetch(key string) (string, int64) {
 	p.RLock()
 	versions := p.values[key]
 	p.RUnlock()
@@ -171,32 +176,23 @@ func (p *partition) fetch(key string) (string, bool) {
 				p.partition, key, versions[i].value, versions[i].index)
 			continue
 		}
-		return versions[i].value, true
+		return versions[i].value, versions[i].index
 	}
-	return "", false
+	return "", 0
 }
 
-type condition struct {
-	key     string
-	start   int64
-	through int64
-	ok      bool
-	pending bool
-}
-
-func (p *partition) check(conditions []condition) {
+func (p *partition) check(key string, start int64, through int64) (ok bool, pending bool) {
 	p.RLock()
 	defer p.RUnlock()
-	for _, c := range conditions {
-		c.ok = true
-		c.pending = false
-		for _, version := range p.values[c.key] {
-			if version.index > c.start && version.index < c.through {
-				c.ok = false
-				c.pending = c.pending || version.pending
-			}
+	ok = true
+	pending = false
+	for _, version := range p.values[key] {
+		if version.index > start && version.index < through {
+			ok = false
+			pending = pending || version.pending
 		}
 	}
+	return
 }
 
 func (p *partition) owns(key string) bool {

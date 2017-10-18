@@ -5,13 +5,15 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
 type KVSource interface {
-	Fetch(k string) (string, bool)
+	Fetch(key string) (string, int64)
+	Check(key string, start int64, through int64) (ok bool, pending bool)
 }
 
 func New(addr string, src KVSource, p sarama.SyncProducer) *Server {
@@ -33,6 +35,7 @@ func (s *Server) Run() error {
 	m.GET("/k", s.fetch)
 	m.POST("/k", s.writeOne)
 	m.POST("/append", s.append)
+	m.POST("/concat", s.concat)
 	return http.ListenAndServe(s.addr, m)
 }
 
@@ -77,10 +80,72 @@ func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
 }
 
+func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	// k1 + k2 -> k3
+	k1 := r.URL.Query().Get("k1")
+	k2 := r.URL.Query().Get("k2")
+	k3 := r.URL.Query().Get("k3")
+
+	v1, idx1 := s.source.Fetch(k1)
+	v2, idx2 := s.source.Fetch(k2)
+
+	msgVal := fmt.Sprintf("T{\"cond\": ["+
+		"{\"key\": \"%s\", \"index\": %d}, "+
+		"{\"key\": \"%s\", \"index\": %d}], "+
+		"\"writes\": ["+
+		"{\"key\": \"%s\", \"value\": \"%s+%s\"}]}",
+		k1, idx1, k2, idx2, k3, v1, v2)
+	fmt.Fprintf(w, "%s\n", msgVal)
+	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
+		Topic: "beam",
+		Value: sarama.StringEncoder(msgVal),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		return
+	}
+	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+
+	var ok1, ok2, pending bool
+	for {
+		ok1, pending = s.source.Check(k1, idx1, offset+1)
+		if !pending {
+			break
+		}
+		fmt.Printf("outcome pending another transaction on %v, sleeping\n", k1)
+		time.Sleep(1 * time.Second)
+	}
+	for ok1 {
+		ok2, pending = s.source.Check(k2, idx2, offset+1)
+		if !pending {
+			break
+		}
+		fmt.Printf("outcome pending another transaction on %v, sleeping\n", k1)
+		time.Sleep(1 * time.Second)
+	}
+
+	commit := ok1 && ok2
+	if commit {
+		fmt.Fprintf(w, "committing\n")
+	} else {
+		fmt.Fprintf(w, "aborting\n")
+	}
+	msgVal = fmt.Sprintf("D{\"tx\": %d, \"commit\": %t}", offset+1, commit)
+	kPart, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
+		Topic: "beam",
+		Value: sarama.StringEncoder(msgVal),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		return
+	}
+	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+}
+
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	k := r.URL.Query().Get("k")
-	v, exists := s.source.Fetch(k)
-	if !exists {
+	v, index := s.source.Fetch(k)
+	if index == 0 {
 		writeError(w, http.StatusNotFound, "key '%v' doesn't exist\n", k)
 		return
 	}
