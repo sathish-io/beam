@@ -24,6 +24,7 @@ func partitionMux(p *Partition) http.Handler {
 
 func startServer(addr string, p *Partition) error {
 	addr = fiddleAddr(addr)
+	fmt.Printf("Starting HTTP server on %v\n", addr)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err

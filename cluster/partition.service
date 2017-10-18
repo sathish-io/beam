@@ -1,0 +1,10 @@
+[Unit]
+Description=Beam Partition
+
+[Service]
+User=stack
+WorkingDirectory=/home/stack/protobeam/
+ExecStart=/home/stack/protobeam/cluster/startpartition.sh -cfg c3.json
+
+[Install]
+WantedBy=multi-user.target

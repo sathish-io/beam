@@ -17,7 +17,7 @@ func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *conf
 	if err != nil {
 		return nil, fmt.Errorf("Unable to start partition consumer: %v", err)
 	}
-	fmt.Println("Listening for messages on the beam/0 topic/partition")
+	fmt.Println("Listening for messages on the beam topic")
 	p := Partition{
 		producer:      producer,
 		consumer:      pc,
