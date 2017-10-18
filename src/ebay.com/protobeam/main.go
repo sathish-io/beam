@@ -25,7 +25,7 @@ func main() {
 		log.Fatalf("Unable to start kafka producer: %v", err)
 	}
 
-	v, err := view.New(c, 4)
+	v, err := view.New(c, p, 4)
 	if err != nil {
 		log.Fatalf("Unable to initialize view: %v", err)
 	}

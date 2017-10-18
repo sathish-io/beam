@@ -1,6 +1,7 @@
 package msg
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,6 +41,10 @@ type DecisionMessage struct {
 	Commit bool  `json:"commit"`
 }
 
+func (d DecisionMessage) Encode() ([]byte, error) {
+	return encode(Decision, d)
+}
+
 func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 	if len(m.Value) == 0 {
 		return Parsed{}, errors.New("Message value has zero length")
@@ -61,4 +66,11 @@ func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 	}
 	err = json.Unmarshal(m.Value[1:], res.Body)
 	return res, err
+}
+
+func encode(t MsgType, body interface{}) ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte(uint8(t))
+	err := json.NewEncoder(&b).Encode(body)
+	return b.Bytes(), err
 }

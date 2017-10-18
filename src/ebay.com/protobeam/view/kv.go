@@ -6,12 +6,13 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 
 	"ebay.com/protobeam/msg"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
-func New(c sarama.Consumer, numPartitions uint32) (*Views, error) {
+func New(c sarama.Consumer, producer sarama.SyncProducer, numPartitions uint32) (*Views, error) {
 	pc, err := c.ConsumePartition("beam", 0, 0)
 	if err != nil {
 		log.Fatalf("Unable to start partition consumer: %v", c)
@@ -22,6 +23,7 @@ func New(c sarama.Consumer, numPartitions uint32) (*Views, error) {
 		consumer: pc,
 	}
 	for i := uint32(0); i < numPartitions; i++ {
+		v.p[i].producer = producer
 		v.p[i].numPartitions = numPartitions
 		v.p[i].partition = i
 		v.p[i].messages = make(chan msg.Parsed, 16)
@@ -78,6 +80,7 @@ type partition struct {
 	partition     uint32
 	messages      chan msg.Parsed
 	transactions  map[int64]transaction
+	producer      sarama.SyncProducer
 }
 
 type value struct {
@@ -87,19 +90,62 @@ type value struct {
 }
 
 type transaction struct {
-	keys []string
+	keys    []string
+	started time.Time
 }
 
 func (p *partition) start() {
-	for pm := range p.messages {
-		switch pm.MsgType {
-		case msg.Write:
-			p.applyWrite(pm)
-		case msg.Transaction:
-			p.applyTransaction(pm)
-		case msg.Decision:
-			p.applyDecision(pm)
+	txTimeoutTimer := time.NewTicker(txTimeout / 3)
+	for {
+		select {
+		case pm := <-p.messages:
+			p.apply(pm)
+
+		case now := <-txTimeoutTimer.C:
+			p.timeoutTransactions(now)
 		}
+	}
+}
+
+var txTimeout = time.Second * 3
+
+// timeoutTransactions will write abort descision for any transaction that been running
+// longer than the tx timeout.
+func (p *partition) timeoutTransactions(now time.Time) {
+	toAbort := make([]int64, 0, 4)
+	p.Lock()
+	for idx, tx := range p.transactions {
+		if now.Sub(tx.started) > txTimeout {
+			toAbort = append(toAbort, idx)
+		}
+	}
+	p.Unlock()
+	for _, idx := range toAbort {
+		fmt.Printf("%d: Transaction Watcher: Aborting %d\n", p.partition, idx)
+		m := msg.DecisionMessage{Tx: idx, Commit: false}
+		enc, err := m.Encode()
+		if err != nil {
+			fmt.Printf("%d: Error encdoing descision message: %v\n", err)
+			continue
+		}
+		_, _, err = p.producer.SendMessage(&sarama.ProducerMessage{
+			Topic: "beam",
+			Value: sarama.ByteEncoder(enc),
+		})
+		if err != nil {
+			fmt.Printf("%d: Error writing abort descision: %v\n", p.partition, err)
+		}
+	}
+}
+
+func (p *partition) apply(pm msg.Parsed) {
+	switch pm.MsgType {
+	case msg.Write:
+		p.applyWrite(pm)
+	case msg.Transaction:
+		p.applyTransaction(pm)
+	case msg.Decision:
+		p.applyDecision(pm)
 	}
 }
 
@@ -121,7 +167,9 @@ func (p *partition) applyWrite(pm msg.Parsed) {
 
 func (p *partition) applyTransaction(pm msg.Parsed) {
 	body := pm.Body.(*msg.TransactionMessage)
-	var tx transaction
+	tx := transaction{
+		started: time.Now(),
+	}
 	for _, write := range body.Writes {
 		if p.owns(write.Key) {
 			fmt.Printf("%d: Pending on transaction, adding %v = %v @ %v\n", p.partition, write.Key, write.Value, pm.Index)
@@ -152,11 +200,11 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 	p.Lock()
 	defer p.Unlock()
 	p.atIndex = pm.Index
-	tx, ok := p.transactions[body.Tx]
-	delete(p.transactions, body.Tx)
-	if !ok {
+	tx, exists := p.transactions[body.Tx]
+	if !exists {
 		return
 	}
+	delete(p.transactions, body.Tx)
 	fmt.Printf("%d: Processing decision %+v @ %v of tx %+v\n", p.partition, body, pm.Index, tx)
 	if body.Commit {
 		for _, key := range tx.keys {

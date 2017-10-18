@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"ebay.com/protobeam/msg"
 	"github.com/julienschmidt/httprouter"
 	"gopkg.in/Shopify/sarama.v1"
 )
@@ -126,16 +127,26 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		time.Sleep(1 * time.Second)
 	}
 
+	// for testing tx timeouts, allow the requester to delay the commit decision
+	wait := r.URL.Query().Get("w")
+	if wait != "" {
+		wt, err := strconv.Atoi(wait)
+		if err != nil {
+			fmt.Fprintf(w, "Unable to parse w param value to a int [will use a default of 10 seconds]: %v\n", err)
+			wt = 10
+		}
+		time.Sleep(time.Duration(wt) * time.Second)
+	}
 	commit := ok1 && ok2
 	if commit {
 		fmt.Fprintf(w, "committing\n")
 	} else {
 		fmt.Fprintf(w, "aborting\n")
 	}
-	msgVal = fmt.Sprintf("D{\"tx\": %d, \"commit\": %t}", offset+1, commit)
+	txDecision, _ := msg.DecisionMessage{Tx: offset + 1, Commit: commit}.Encode()
 	kPart, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
-		Value: sarama.StringEncoder(msgVal),
+		Value: sarama.ByteEncoder(txDecision),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
