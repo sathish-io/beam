@@ -59,6 +59,11 @@ func (v *Views) Fetch(k string) (string, int64) {
 	return v.p[pIdx].fetch(k)
 }
 
+func (v *Views) FetchAt(k string, idx int64) (string, int64) {
+	pIdx := hash(k, uint32(len(v.p)))
+	return v.p[pIdx].fetchAt(k, idx)
+}
+
 func (v *Views) Check(key string, start int64, through int64) (ok bool, pending bool) {
 	pIdx := hash(key, uint32(len(v.p)))
 	return v.p[pIdx].check(key, start, through)
@@ -163,6 +168,25 @@ func (p *partition) applyDecision(pm msg.Parsed) {
 			}
 		}
 	}
+}
+
+func (p *partition) fetchAt(key string, idx int64) (string, int64) {
+	p.RLock()
+	versions := p.values[key]
+	p.RUnlock()
+	// For now, this returns earlier versions when transaction outcomes are unknown.
+	for i := len(versions) - 1; i >= 0; i-- {
+		if versions[i].pending {
+			fmt.Printf("%d: skipping pending value of %v = %v @ %v\n",
+				p.partition, key, versions[i].value, versions[i].index)
+			continue
+		}
+		if versions[i].index > idx {
+			continue
+		}
+		return versions[i].value, versions[i].index
+	}
+	return "", 0
 }
 
 func (p *partition) fetch(key string) (string, int64) {

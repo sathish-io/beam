@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -13,6 +14,7 @@ import (
 
 type KVSource interface {
 	Fetch(key string) (string, int64)
+	FetchAt(key string, idx int64) (string, int64)
 	Check(key string, start int64, through int64) (ok bool, pending bool)
 }
 
@@ -144,7 +146,19 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	k := r.URL.Query().Get("k")
-	v, index := s.source.Fetch(k)
+	qIdx := r.URL.Query().Get("idx")
+	var v string
+	var index int64
+	if qIdx != "" {
+		reqIdx, err := strconv.ParseInt(qIdx, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Unable to parse idx paramter: %v\n", err)
+			return
+		}
+		v, index = s.source.FetchAt(k, reqIdx)
+	} else {
+		v, index = s.source.Fetch(k)
+	}
 	if index == 0 {
 		writeError(w, http.StatusNotFound, "key '%v' doesn't exist\n", k)
 		return
