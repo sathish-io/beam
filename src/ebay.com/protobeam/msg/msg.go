@@ -36,8 +36,8 @@ type Condition struct {
 }
 
 type DecisionMessage struct {
-	tx     int64 `json:"tx"`
-	commit bool  `json:"commit"`
+	Tx     int64 `json:"tx"`
+	Commit bool  `json:"commit"`
 }
 
 func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
