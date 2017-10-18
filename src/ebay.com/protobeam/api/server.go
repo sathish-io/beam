@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,17 +10,13 @@ import (
 	"time"
 
 	"ebay.com/protobeam/msg"
+	"ebay.com/protobeam/view"
+	"ebay.com/protobeam/web"
 	"github.com/julienschmidt/httprouter"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
-type KVSource interface {
-	Fetch(key string) (string, int64, error)
-	FetchAt(key string, idx int64) (string, int64, error)
-	Check(key string, start int64, through int64) (ok bool, pending bool, err error)
-}
-
-func New(addr string, src KVSource, p sarama.SyncProducer) *Server {
+func New(addr string, src *view.Client, p sarama.SyncProducer) *Server {
 	return &Server{
 		addr:     addr,
 		source:   src,
@@ -29,12 +26,13 @@ func New(addr string, src KVSource, p sarama.SyncProducer) *Server {
 
 type Server struct {
 	addr     string
-	source   KVSource
+	source   *view.Client
 	producer sarama.SyncProducer
 }
 
 func (s *Server) Run() error {
 	m := httprouter.New()
+	m.GET("/stats", s.stats)
 	m.GET("/k", s.fetch)
 	m.POST("/k", s.writeOne)
 	m.POST("/append", s.append)
@@ -46,16 +44,21 @@ func (s *Server) Run() error {
 	return http.ListenAndServe(s.addr, http.HandlerFunc(logger))
 }
 
-func WriteError(w http.ResponseWriter, statusCode int, formatMsg string, params ...interface{}) {
-	w.WriteHeader(statusCode)
-	fmt.Fprintf(w, formatMsg, params...)
+func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	stats, err := s.source.Stats()
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Failed to fetch stats: %v", err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	k := r.URL.Query().Get("k")
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
+		web.WriteError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
 		return
 	}
 	msgVal := fmt.Sprintf("W{\"Key\":\"%s\", \"Value\":\"%s\"}", k, v)
@@ -64,7 +67,7 @@ func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.P
 		Value: sarama.StringEncoder(msgVal),
 	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
 		return
 	}
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
@@ -73,7 +76,7 @@ func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.P
 func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	v, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
+		web.WriteError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
 		return
 	}
 	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
@@ -81,7 +84,7 @@ func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		Value: sarama.StringEncoder(v),
 	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
 		return
 	}
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
@@ -105,7 +108,7 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	v1, idx1, err1 := s.source.Fetch(k1)
 	v2, idx2, err2 := s.source.Fetch(k2)
 	if err := anyErr(err1, err2); err != nil {
-		WriteError(w, http.StatusInternalServerError, "Error reading starting values: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Error reading starting values: %v", err)
 		return
 	}
 
@@ -121,7 +124,7 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		Value: sarama.StringEncoder(msgVal),
 	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
 		return
 	}
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
@@ -168,7 +171,7 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		Value: sarama.ByteEncoder(txDecision),
 	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
 		return
 	}
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
@@ -184,7 +187,7 @@ func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Para
 		var reqIdx int64
 		reqIdx, err = strconv.ParseInt(qIdx, 10, 64)
 		if err != nil {
-			WriteError(w, http.StatusBadRequest, "Unable to parse idx paramter: %v\n", err)
+			web.WriteError(w, http.StatusBadRequest, "Unable to parse idx paramter: %v\n", err)
 			return
 		}
 		v, index, err = s.source.FetchAt(k, reqIdx)
@@ -192,11 +195,11 @@ func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Para
 		v, index, err = s.source.Fetch(k)
 	}
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "Unable to read key '%v' from partition server: %v", k, err)
+		web.WriteError(w, http.StatusInternalServerError, "Unable to read key '%v' from partition server: %v", k, err)
 		return
 	}
 	if index == 0 {
-		WriteError(w, http.StatusNotFound, "key '%v' doesn't exist\n", k)
+		web.WriteError(w, http.StatusNotFound, "key '%v' doesn't exist\n", k)
 		return
 	}
 	w.WriteHeader(http.StatusOK)

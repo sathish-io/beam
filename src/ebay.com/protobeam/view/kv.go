@@ -261,6 +261,25 @@ func (p *Partition) owns(key string) bool {
 	return hash(key, p.numPartitions) == p.partition
 }
 
+type Stats struct {
+	Partition uint32 `json:"partition"`
+	Keys      int    `json:"keys"`
+	Txs       int    `json:"txs"`
+	LastIndex int64  `json:"lastIndex"`
+}
+
+func (p *Partition) Stats() Stats {
+	p.lock.RLock()
+	s := Stats{
+		Keys:      len(p.values),
+		Txs:       len(p.transactions),
+		LastIndex: p.atIndex,
+		Partition: p.partition,
+	}
+	p.lock.RUnlock()
+	return s
+}
+
 func hash(k string, sz uint32) uint32 {
 	h := fnv.New32()
 	io.WriteString(h, k)

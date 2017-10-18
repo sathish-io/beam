@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ebay.com/protobeam/api"
+	"ebay.com/protobeam/web"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -18,6 +18,7 @@ func partitionMux(p *Partition) http.Handler {
 	m.GET("/fetch", ps.fetch)
 	m.GET("/fetchAt", ps.fetchAt)
 	m.GET("/check", ps.check)
+	m.GET("/stats", ps.stats)
 	return m
 }
 
@@ -59,7 +60,7 @@ func (s *partitionServer) fetch(w http.ResponseWriter, r *http.Request, _ httpro
 	k := r.URL.Query().Get("k")
 	v, idx := s.p.fetch(k)
 	res := fetchResult{v, idx}
-	w.Header().Set("Cotnent-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(&res)
 }
 
@@ -71,7 +72,7 @@ func (s *partitionServer) fetchAt(w http.ResponseWriter, r *http.Request, _ http
 	}
 	val, idx := s.p.fetchAt(k, reqIdx)
 	res := fetchResult{val, idx}
-	w.Header().Set("Cotnent-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(&res)
 }
 
@@ -79,7 +80,7 @@ func parseQSInt(w http.ResponseWriter, r *http.Request, p string) (val int64, ok
 	s := r.URL.Query().Get(p)
 	parsed, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		api.WriteError(w, http.StatusBadRequest, "Unable to parse %s: %s", p, err)
+		web.WriteError(w, http.StatusBadRequest, "Unable to parse %s: %s", p, err)
 		return 0, false
 	}
 	return parsed, true
@@ -97,8 +98,14 @@ func (s *partitionServer) check(w http.ResponseWriter, r *http.Request, _ httpro
 	}
 	ok, pending := s.p.check(key, start, through)
 	res := checkResult{ok, pending}
-	w.Header().Set("Cotnent-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(&res)
+}
+
+func (s *partitionServer) stats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	stats := s.p.Stats()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(&stats)
 }
 
 type fetchResult struct {
