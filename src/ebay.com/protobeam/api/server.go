@@ -32,6 +32,7 @@ func (s *Server) Run() error {
 	m := httprouter.New()
 	m.GET("/k", s.fetch)
 	m.POST("/k", s.writeOne)
+	m.POST("/append", s.append)
 	return http.ListenAndServe(s.addr, m)
 }
 
@@ -51,6 +52,23 @@ func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.P
 	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
 		Value: sarama.StringEncoder(msgVal),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+		return
+	}
+	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+}
+
+func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	v, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Unable to read POST body: %v", err)
+		return
+	}
+	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
+		Topic: "beam",
+		Value: sarama.StringEncoder(v),
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)

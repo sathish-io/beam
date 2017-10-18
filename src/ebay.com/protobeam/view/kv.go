@@ -74,15 +74,22 @@ type value struct {
 
 func (p *partition) start() {
 	for pm := range p.messages {
-		if pm.MsgType == msg.Write {
-			body := pm.Body.(msg.WriteKeyValueMessage)
+		switch pm.MsgType {
+		case msg.Write:
+			body := pm.Body.(*msg.WriteKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
 				p.Lock()
 				p.values[body.Key] = append(p.values[body.Key],
 					value{index: pm.Index, value: body.Value, pending: false})
 				p.Unlock()
-				fmt.Printf("%d: Adding %v = %v\n", p.partition, body.Key, body.Value)
+				fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
 			}
+		case msg.Transaction:
+			body := pm.Body.(*msg.TransactionMessage)
+			fmt.Printf("%d: TODO: process transaction %+v @ %v\n", p.partition, body, pm.Index)
+		case msg.Decision:
+			body := pm.Body.(*msg.DecisionMessage)
+			fmt.Printf("%d: TODO: process decision %+v @ %v\n", p.partition, body, pm.Index)
 		}
 	}
 }
