@@ -25,7 +25,7 @@ func New(c sarama.Consumer, numPartitions uint32) (*Views, error) {
 		v.p[i].numPartitions = numPartitions
 		v.p[i].partition = i
 		v.p[i].messages = make(chan msg.Parsed, 16)
-		v.p[i].values = make(map[string]string, 16)
+		v.p[i].values = make(map[string][]value, 16)
 	}
 	return &v, nil
 }
@@ -63,7 +63,13 @@ type partition struct {
 	numPartitions uint32
 	partition     uint32
 	messages      chan msg.Parsed
-	values        map[string]string
+	values        map[string][]value
+}
+
+type value struct {
+	index   int64
+	value   string
+	pending bool
 }
 
 func (p *partition) start() {
@@ -72,7 +78,8 @@ func (p *partition) start() {
 			body := pm.Body.(msg.WriteKeyValueMessage)
 			if hash(body.Key, p.numPartitions) == p.partition {
 				p.Lock()
-				p.values[body.Key] = body.Value
+				p.values[body.Key] = append(p.values[body.Key],
+					value{index: pm.Index, value: body.Value, pending: false})
 				p.Unlock()
 				fmt.Printf("%d: Adding %v = %v\n", p.partition, body.Key, body.Value)
 			}
@@ -82,9 +89,38 @@ func (p *partition) start() {
 
 func (p *partition) fetch(k string) (string, bool) {
 	p.RLock()
-	v, exists := p.values[k]
+	versions := p.values[k]
 	p.RUnlock()
-	return v, exists
+	// For now, this returns earlier versions when transaction outcomes are unknown.
+	for i := len(versions) - 1; i >= 0; i-- {
+		if !versions[i].pending {
+			return versions[i].value, true
+		}
+	}
+	return "", false
+}
+
+type condition struct {
+	key     string
+	start   int64
+	through int64
+	ok      bool
+	pending bool
+}
+
+func (p *partition) check(conditions []condition) {
+	p.RLock()
+	defer p.RUnlock()
+	for _, c := range conditions {
+		c.ok = true
+		c.pending = false
+		for _, version := range p.values[c.key] {
+			if version.index > c.start && version.index < c.through {
+				c.ok = false
+				c.pending = c.pending || version.pending
+			}
+		}
+	}
 }
 
 func hash(k string, sz uint32) uint32 {
