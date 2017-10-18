@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ func partitionMux(p *Partition) http.Handler {
 	m.GET("/fetchAt", ps.fetchAt)
 	m.GET("/check", ps.check)
 	m.GET("/stats", ps.stats)
+	m.NotFound = http.DefaultServeMux
 	return m
 }
 

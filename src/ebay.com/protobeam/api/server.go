@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	_ "net/http/pprof"
 	"strconv"
 	"time"
 
@@ -39,6 +40,7 @@ func (s *Server) Run() error {
 	m.POST("/append", s.append)
 	m.POST("/concat", s.concat)
 	m.POST("/fill", s.fill)
+	m.NotFound = http.DefaultServeMux
 	logger := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[API] %v %v\n", r.Method, r.URL)
 		m.ServeHTTP(w, r)
