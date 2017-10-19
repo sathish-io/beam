@@ -2,14 +2,13 @@ package view
 
 import (
 	"fmt"
-	"hash/fnv"
-	"io"
 	"runtime"
 	"sync"
 	"time"
 
 	"ebay.com/protobeam/config"
 	"ebay.com/protobeam/msg"
+	"github.com/segmentio/fasthash/fnv1a"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
@@ -331,8 +330,6 @@ func (p *Partition) Stats() Stats {
 }
 
 func hash(k string, sz uint32) uint32 {
-	h := fnv.New32()
-	io.WriteString(h, k)
-	r := h.Sum32()
-	return r % sz
+	r := fnv1a.HashString64(k)
+	return uint32(r % uint64(sz))
 }

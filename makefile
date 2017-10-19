@@ -18,6 +18,7 @@ get:
 	mkdir  -p src/vendor/github.com
 	git clone https://github.com/julienschmidt/httprouter.git src/vendor/github.com/julienschmidt/httprouter
 	git clone https://github.com/ugorji/go src/vendor/github.com/ugorji/go
+	git clone https://github.com/segmentio/fasthash.git src/vendor/github.com/segmentio/fasthash
 	
 	git clone https://github.com/rcrowley/go-metrics src/vendor/github.com/rcrowley/go-metrics
 	git clone https://github.com/davecgh/go-spew src/vendor/github.com/davecgh/go-spew
