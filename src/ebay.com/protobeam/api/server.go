@@ -193,24 +193,44 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 }
 
 func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	for i := 0; i < 1000; i++ {
-		key := fmt.Sprintf("key-%08x", rand.Int31())
-		value := fmt.Sprintf("value-%08x", rand.Int31())
-		msgVal, err := msg.WriteKeyValueMessage{Key: key, Value: value}.Encode()
-		if err != nil {
-			web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
-			return
-		}
-		kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
-			Topic: "beam",
-			Value: sarama.ByteEncoder(msgVal),
-		})
-		if err != nil {
-			web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
-			return
-		}
-		fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+	n := 1
+	ns := r.URL.Query().Get("n")
+	if ns != "" {
+		n, _ = strconv.Atoi(ns)
 	}
+	countCh := make(chan int, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			success := 0
+			defer func() {
+				countCh <- success
+			}()
+			for i := 0; i < 1000; i++ {
+				key := fmt.Sprintf("key-%08x", rand.Int31())
+				value := fmt.Sprintf("value-%08x", rand.Int31())
+				msgVal, err := msg.WriteKeyValueMessage{Key: key, Value: value}.Encode()
+				if err != nil {
+					web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
+					return
+				}
+				_, _, err = s.producer.SendMessage(&sarama.ProducerMessage{
+					Topic: "beam",
+					Value: sarama.ByteEncoder(msgVal),
+				})
+				if err != nil {
+					web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+					return
+				}
+				success++
+				//fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+			}
+		}()
+	}
+	total := 0
+	for i := 0; i < n; i++ {
+		total += <-countCh
+	}
+	fmt.Fprintf(w, "Created total %d keys\n", total)
 }
 
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
