@@ -18,16 +18,17 @@ const Transaction MsgType = 'T'
 const Decision MsgType = 'D'
 
 var jsonHandle = codec.JsonHandle{}
+var bincHandle = codec.BincHandle{}
 
 var encPool = sync.Pool{
 	New: func() interface{} {
-		return codec.NewEncoder(ioutil.Discard, &jsonHandle)
+		return codec.NewEncoder(ioutil.Discard, &bincHandle)
 	},
 }
 
 var decPool = sync.Pool{
 	New: func() interface{} {
-		return codec.NewDecoderBytes(nil, &jsonHandle)
+		return codec.NewDecoderBytes(nil, &bincHandle)
 	},
 }
 
