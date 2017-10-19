@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"syscall"
+	"time"
 
 	"ebay.com/protobeam/api"
 	"ebay.com/protobeam/config"
@@ -18,6 +20,7 @@ func main() {
 	apiBind := flag.String("api", "", "If set start an API Server at this address")
 	cfgFile := flag.String("cfg", "pb.json", "Protobeam config file")
 	partIdx := flag.Int("p", -2, "Partition Number for this server to run [overrides value in config file]")
+	startProfile := flag.String("sp", "", "If set will generate a CPU Profile to the named file for startup processing [unless the view hits the HWM]")
 	flag.Parse()
 
 	cfg, err := config.Load(*cfgFile)
@@ -36,11 +39,15 @@ func main() {
 	kconfig.Producer.RequiredAcks = sarama.WaitForAll // Wait for all in-sync replicas to ack the message
 	kconfig.Producer.Retry.Max = 10                   // Retry up to 10 times to produce the message
 	kconfig.Producer.Return.Successes = true
-	c, err := sarama.NewConsumer(cfg.BrokerList, kconfig)
+	kc, err := sarama.NewClient(cfg.BrokerList, kconfig)
+	if err != nil {
+		log.Fatalf("Unable to create Kafka client: %v", err)
+	}
+	c, err := sarama.NewConsumerFromClient(kc)
 	if err != nil {
 		log.Fatalf("Unable to start consumer: %v", err)
 	}
-	p, err := sarama.NewSyncProducer(cfg.BrokerList, kconfig)
+	p, err := sarama.NewSyncProducerFromClient(kc)
 	if err != nil {
 		log.Fatalf("Unable to start kafka producer: %v", err)
 	}
@@ -49,6 +56,15 @@ func main() {
 		ps, err := view.NewPartionServer(c, p, cfg)
 		if err != nil {
 			log.Fatalf("Unable to initialize partition: %v", err)
+		}
+		if *startProfile != "" {
+			pf, err := os.Create(*startProfile)
+			if err != nil {
+				fmt.Printf("Unable to create file for Startup Profiling, skipping: %v\n", err)
+			} else {
+				pprof.StartCPUProfile(pf)
+				go profileWatcher(kc, ps)
+			}
 		}
 		ps.Start()
 	}
@@ -66,4 +82,37 @@ func waitForQuit() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 	fmt.Println("Protobeam Exiting")
+}
+
+func profileWatcher(kc sarama.Client, ps *view.Partition) {
+	hwm, _ := kc.GetOffset("beam", 0, sarama.OffsetNewest)
+	fmt.Printf("Profiling until AtIndex=%d\n", hwm)
+	prev := ps.AtIndex()
+	wait := int64(1)
+	for {
+		time.Sleep(time.Duration(wait) * time.Second)
+		at := ps.AtIndex()
+		if at >= hwm {
+			fmt.Printf("Partition reached HWM of %d, stoping CPU Profile\n", hwm)
+			pprof.StopCPUProfile()
+			return
+		}
+		rate := max(1, (at-prev)/wait)
+		wait = min(60, max(1, ((hwm-at)/rate)*5/10))
+		prev = at
+	}
+}
+
+func max(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }

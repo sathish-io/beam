@@ -41,7 +41,7 @@ func startServer(addr string, p *Partition) error {
 
 func logMux(delegate http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("[PART] %s %s", r.Method, r.URL)
+		fmt.Printf("[PART] %s %s\n", r.Method, r.URL)
 		delegate.ServeHTTP(w, r)
 	})
 }

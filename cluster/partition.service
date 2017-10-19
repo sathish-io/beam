@@ -5,7 +5,7 @@ Description=Beam Partition
 User=stack
 Restart=on-failure
 WorkingDirectory=/home/stack/protobeam/
-ExecStart=/home/stack/protobeam/cluster/startpartition.sh -cfg c3.json
+ExecStart=/home/stack/protobeam/cluster/startpartition.sh -cfg c3.json -sp startup.cpu
 
 [Install]
 WantedBy=multi-user.target

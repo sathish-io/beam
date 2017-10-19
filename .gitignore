@@ -3,3 +3,5 @@
 /bin
 src/ebay.com/protobeam/msg/codec.go
 .DS_Store
+profile*.pdf
+*.cpu

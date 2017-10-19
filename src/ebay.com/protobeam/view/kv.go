@@ -285,6 +285,13 @@ type Stats struct {
 
 const oneMB = 1024 * 1024
 
+func (p *Partition) AtIndex() int64 {
+	p.lock.RLock()
+	i := p.atIndex
+	p.lock.RUnlock()
+	return i
+}
+
 func (p *Partition) Stats() Stats {
 	p.lock.RLock()
 	s := Stats{
