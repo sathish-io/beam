@@ -2,10 +2,12 @@ package msg
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"sync"
 
+	"github.com/ugorji/go/codec"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
@@ -15,38 +17,32 @@ const Write MsgType = 'W'
 const Transaction MsgType = 'T'
 const Decision MsgType = 'D'
 
+var jsonHandle = codec.JsonHandle{}
+
+var encPool = sync.Pool{
+	New: func() interface{} {
+		return codec.NewEncoder(ioutil.Discard, &jsonHandle)
+	},
+}
+
+var decPool = sync.Pool{
+	New: func() interface{} {
+		return codec.NewDecoderBytes(nil, &jsonHandle)
+	},
+}
+
 type Parsed struct {
 	Index   int64
 	MsgType MsgType
 	Body    interface{}
 }
 
-type WriteKeyValueMessage struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
 func (w WriteKeyValueMessage) Encode() ([]byte, error) {
 	return encode(Write, w)
 }
 
-type TransactionMessage struct {
-	Cond   []Condition            `json:"cond"`
-	Writes []WriteKeyValueMessage `json:"writes"`
-}
-
 func (t TransactionMessage) Encode() ([]byte, error) {
 	return encode(Transaction, t)
-}
-
-type Condition struct {
-	Key   string `json:"key"`
-	Index int64  `json:"index"`
-}
-
-type DecisionMessage struct {
-	Tx     int64 `json:"tx"`
-	Commit bool  `json:"commit"`
 }
 
 func (d DecisionMessage) Encode() ([]byte, error) {
@@ -72,13 +68,19 @@ func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 	default:
 		return res, fmt.Errorf("Unexpected message type of '%v'", res.MsgType)
 	}
-	err = json.Unmarshal(m.Value[1:], res.Body)
+	dec := decPool.Get().(*codec.Decoder)
+	dec.ResetBytes(m.Value[1:])
+	err = dec.Decode(res.Body)
+	decPool.Put(dec)
 	return res, err
 }
 
 func encode(t MsgType, body interface{}) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteByte(uint8(t))
-	err := json.NewEncoder(&b).Encode(body)
+	enc := encPool.Get().(*codec.Encoder)
+	enc.Reset(&b)
+	err := enc.Encode(body)
+	encPool.Put(enc)
 	return b.Bytes(), err
 }

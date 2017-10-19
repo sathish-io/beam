@@ -1,5 +1,7 @@
 export GOPATH=$(shell pwd)
+ROOT=$(shell pwd)
 PACKAGE=ebay.com/protobeam
+VPATH=src/${PACKAGE}/msg
 
 phoney: clean get buld test run
 
@@ -9,11 +11,13 @@ clean:
 	rm -rf src/vendor
 	rm -rf bin
 	rm -rf pkg
+	rm src/${PACKAGE}/msg/codec.go
 
 get:
 	rm -rf src/vendor
 	mkdir  -p src/vendor/github.com
 	git clone https://github.com/julienschmidt/httprouter.git src/vendor/github.com/julienschmidt/httprouter
+	git clone https://github.com/ugorji/go src/vendor/github.com/ugorji/go
 	
 	git clone https://github.com/rcrowley/go-metrics src/vendor/github.com/rcrowley/go-metrics
 	git clone https://github.com/davecgh/go-spew src/vendor/github.com/davecgh/go-spew
@@ -27,7 +31,12 @@ get:
 	git clone https://github.com/Shopify/sarama.git src/vendor/gopkg.in/Shopify/sarama.v1
 	pushd src/vendor/gopkg.in/Shopify/sarama.v1 && git checkout v1.13.0
 	
-build: 
+	go install vendor/github.com/ugorji/go/...
+
+codec.go: types.go
+	pushd src/${PACKAGE}/msg && ${ROOT}/bin/codecgen -o codec.go types.go 
+	
+build: codec.go
 	go install ${PACKAGE}/...
 
 test:
