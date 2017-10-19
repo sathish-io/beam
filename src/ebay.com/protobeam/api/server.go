@@ -171,12 +171,12 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		return
 	}
 	txMsg := msg.TransactionMessage{
-		Cond: []msg.Condition{
-			{Key: k1, Index: idx1},
-			{Key: k2, Index: idx2},
+		Cond: []*msg.Condition{
+			&msg.Condition{Key: k1, Index: idx1},
+			&msg.Condition{Key: k2, Index: idx2},
 		},
-		Writes: []msg.WriteKeyValueMessage{
-			{Key: k3, Value: v1 + "+" + v2},
+		Writes: []*msg.WriteKeyValueMessage{
+			&msg.WriteKeyValueMessage{Key: k3, Value: v1 + "+" + v2},
 		},
 	}
 	msgVal, err := txMsg.Encode()

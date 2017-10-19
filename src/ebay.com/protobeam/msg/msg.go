@@ -1,53 +1,42 @@
 package msg
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"sync"
 
-	"github.com/ugorji/go/codec"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
 type MsgType uint8
 
-const Write MsgType = 'W'
-const Transaction MsgType = 'T'
-const Decision MsgType = 'D'
-
-var jsonHandle = codec.JsonHandle{}
-var bincHandle = codec.BincHandle{}
-
-var encPool = sync.Pool{
-	New: func() interface{} {
-		return codec.NewEncoder(ioutil.Discard, &bincHandle)
-	},
-}
-
-var decPool = sync.Pool{
-	New: func() interface{} {
-		return codec.NewDecoderBytes(nil, &bincHandle)
-	},
-}
+const (
+	Write       MsgType = 'W'
+	Transaction MsgType = 'T'
+	Decision    MsgType = 'D'
+)
 
 type Parsed struct {
 	Index   int64
 	MsgType MsgType
-	Body    interface{}
+	Body    PbMessage
 }
 
 func (w WriteKeyValueMessage) Encode() ([]byte, error) {
-	return encode(Write, w)
+	return encode(Write, &w)
 }
 
 func (t TransactionMessage) Encode() ([]byte, error) {
-	return encode(Transaction, t)
+	return encode(Transaction, &t)
 }
 
 func (d DecisionMessage) Encode() ([]byte, error) {
-	return encode(Decision, d)
+	return encode(Decision, &d)
+}
+
+type PbMessage interface {
+	Unmarshal(dAtA []byte) error
+	MarshalTo(dAtA []byte) (int, error)
+	Size() (n int)
 }
 
 func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
@@ -58,7 +47,6 @@ func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 		Index:   m.Offset + 1,
 		MsgType: MsgType(m.Value[0]),
 	}
-	var err error
 	switch res.MsgType {
 	case Write:
 		res.Body = new(WriteKeyValueMessage)
@@ -69,19 +57,13 @@ func Decode(m *sarama.ConsumerMessage) (Parsed, error) {
 	default:
 		return res, fmt.Errorf("Unexpected message type of '%v'", res.MsgType)
 	}
-	dec := decPool.Get().(*codec.Decoder)
-	dec.ResetBytes(m.Value[1:])
-	err = dec.Decode(res.Body)
-	decPool.Put(dec)
+	err := res.Body.Unmarshal(m.Value[1:])
 	return res, err
 }
 
-func encode(t MsgType, body interface{}) ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte(uint8(t))
-	enc := encPool.Get().(*codec.Encoder)
-	enc.Reset(&b)
-	err := enc.Encode(body)
-	encPool.Put(enc)
-	return b.Bytes(), err
+func encode(t MsgType, body PbMessage) ([]byte, error) {
+	d := make([]byte, 1+body.Size())
+	d[0] = uint8(t)
+	_, err := body.MarshalTo(d[1:])
+	return d, err
 }

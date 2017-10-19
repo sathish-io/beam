@@ -2,6 +2,8 @@
 
 Follow [Kafka quick start](https://kafka.apache.org/quickstart) to install kafka, start ZK & Kafka.
 
+Make sure you've got protoc installed, `brew install protobuf`
+
 Create a 1 partition beam topic
 
 	bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic beam
@@ -71,6 +73,4 @@ a CPU profile from start until the partition has caught up to where the tail of 
 
 ## Message encoding
 
-Currently records in the log are encoded in [binc](https://github.com/ugorji/binc) format using [go-codec](https://github.com/ugorji/go).
-
-[serialization benchmarks](https://github.com/alecthomas/go_serialization_benchmarks) indicate we should probably be looking at gogoprotobuf.
+Currently records in the log are encoded in protobuf3 format using [gogoprotobuf](https://github.com/gogo/protobuf).

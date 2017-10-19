@@ -1,7 +1,8 @@
 /src/vendor
 /pkg
 /bin
-src/ebay.com/protobeam/msg/codec.go
 .DS_Store
 profile*.pdf
 *.cpu
+src/ebay.com/protobeam/msg/codec.go
+src/ebay.com/protobeam/msg/beam.pb.go
