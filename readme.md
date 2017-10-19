@@ -6,13 +6,6 @@ Create a 1 partition beam topic
 
 	bin/kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic beam
 
-Write some messages to it
-
-	bin/kafka-console-producer.sh --broker-list localhost:9092 --topic beam
-	>foo
-	>bar
-
-
 build & run protobeam [can use just `make build run` on subsequent builds]
 
 	$ make get build run
@@ -47,3 +40,32 @@ commit or abort it:
 run a transaction that sets `val[k3]` to `sprintf("%s+%s", val[k1], val[k2])`:
 
     $ curl 'http://localhost:9988/concat?k1=./first&k2=./second&k3=./third' -d ''
+
+write 1000 randomly generated keys & values
+
+	 $ curl -X POST 'http://localhost:9988/fill'
+ 
+specify the n query string param to parallelize it, e.g. this will insert 1000 x 10 key/values using 10 goroutines.
+
+	 $ curl -X POST 'http://localhost:9988/fill?n=10'
+
+get stats from the cluster
+
+	$ curl 'http://localhost:9988/stats'
+
+get stats in a nice readable table
+
+	$ curl 'http://localhost:9988/stats.txt'
+
+
+## Profiling
+
+all the endpoints expose the standard pprof debug endpoints, you can use those to generate CPU profiles, goroutine stack dumps etc.
+In addition, the -sp command line flag can be used to generate a CPU profile covering the inital log replay period [it'll generate
+a CPU profile from start until the partition has caught up to where the tail of the log was at startup].
+
+## Message encoding
+
+Currently records in the log are encoded in [binc](https://github.com/ugorji/binc) format using [go-codec](https://github.com/ugorji/go).
+
+[serialization benchmarks[(https://github.com/alecthomas/go_serialization_benchmarks) indicate we should probably be looking at gogoprotobuf.
