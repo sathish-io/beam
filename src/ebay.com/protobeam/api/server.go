@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"strconv"
+	"strings"
 	"time"
 
 	"ebay.com/protobeam/msg"
@@ -35,6 +36,7 @@ type Server struct {
 func (s *Server) Run() error {
 	m := httprouter.New()
 	m.GET("/stats", s.stats)
+	m.GET("/stats.txt", s.statsTable)
 	m.GET("/k", s.fetch)
 	m.POST("/k", s.writeOne)
 	m.POST("/append", s.append)
@@ -56,6 +58,55 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) statsTable(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	stats, err := s.source.Stats()
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Failed to fetch stats:%v\n", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	table := make([][]string, len(stats)+1)
+	table[0] = []string{"Partition", "# Keys", "# Txs", "At Index", "Heap MB", "Sys MB", "Num GC", "Total GC Pause ms"}
+	for r, s := range stats {
+		table[r+1] = []string{
+			strconv.FormatUint(uint64(s.Partition), 10),
+			strconv.Itoa(s.Keys),
+			strconv.Itoa(s.Txs),
+			strconv.FormatInt(s.LastIndex, 10),
+			strconv.FormatUint(s.MemStats.Heap, 10),
+			strconv.FormatUint(s.MemStats.Sys, 10),
+			strconv.FormatUint(uint64(s.MemStats.NumGC), 10),
+			strconv.FormatUint(s.MemStats.TotalPauseMS, 10),
+		}
+	}
+	prettyPrintTable(w, table)
+}
+
+func prettyPrintTable(w io.Writer, t [][]string) {
+	for c := range t[0] {
+		w := 0
+		for r := range t {
+			w = max(w, len(t[r][c]))
+		}
+		for r := range t {
+			t[r][c] = strings.Repeat(" ", w+1-len(t[r][c])) + t[r][c] + " |"
+		}
+	}
+	for _, r := range t {
+		for _, c := range r {
+			io.WriteString(w, c)
+		}
+		io.WriteString(w, "\n")
+	}
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
