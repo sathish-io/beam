@@ -57,15 +57,20 @@ get stats in a nice readable table
 
 	$ curl 'http://localhost:9988/stats.txt'
 
+     Partition |   # Keys | # Txs | At Index | Heap MB | Sys MB | Num GC | Total GC Pause ms |
+             0 | 10008812 |     0 | 40401003 |    1330 |   3272 |    127 |               304 |
+             1 | 10007111 |     0 | 40401003 |    1330 |   3267 |    126 |                87 |
+             2 | 10000187 |     0 | 40401003 |    1329 |   3573 |    127 |               219 |
+             3 | 10007324 |     0 | 40401003 |    1330 |   3240 |    127 |               263 |
 
 ## Profiling
 
 all the endpoints expose the standard pprof debug endpoints, you can use those to generate CPU profiles, goroutine stack dumps etc.
-In addition, the -sp command line flag can be used to generate a CPU profile covering the inital log replay period [it'll generate
+In addition, the `-sp` command line flag can be used to generate a CPU profile covering the inital log replay period [it'll generate
 a CPU profile from start until the partition has caught up to where the tail of the log was at startup].
 
 ## Message encoding
 
 Currently records in the log are encoded in [binc](https://github.com/ugorji/binc) format using [go-codec](https://github.com/ugorji/go).
 
-[serialization benchmarks[(https://github.com/alecthomas/go_serialization_benchmarks) indicate we should probably be looking at gogoprotobuf.
+[serialization benchmarks](https://github.com/alecthomas/go_serialization_benchmarks) indicate we should probably be looking at gogoprotobuf.
