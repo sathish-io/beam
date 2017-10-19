@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	hsh "hash"
 	"hash/fnv"
 	"io"
 	"runtime"
@@ -73,15 +74,44 @@ func (t transaction) String() string {
 
 func (p *Partition) start() {
 	txTimeoutTimer := time.NewTicker(txTimeout / 3)
+	pms := make([]msg.Parsed, 0, 32)
+	flush := func() {
+		if len(pms) > 0 {
+			p.apply(pms)
+			pms = pms[:0]
+		}
+	}
+	acc := func(km *sarama.ConsumerMessage) bool {
+		pm, err := msg.Decode(km)
+		if err != nil {
+			fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
+			return false
+		}
+		pms = append(pms, pm)
+		if len(pms) == cap(pms) {
+			flush()
+			return true
+		}
+		return false
+	}
+	buffPending := func() {
+		for {
+			select {
+			case km := <-p.consumer.Messages():
+				if acc(km) {
+					return
+				}
+			default:
+				flush()
+				return
+			}
+		}
+	}
 	for {
 		select {
 		case km := <-p.consumer.Messages():
-			pm, err := msg.Decode(km)
-			if err != nil {
-				fmt.Printf("Error decoding kafka message, ignoring: %v\n", err)
-				continue
-			}
-			p.apply(pm)
+			acc(km)
+			buffPending()
 
 		case now := <-txTimeoutTimer.C:
 			p.timeoutTransactions(now)
@@ -126,14 +156,19 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 	}
 }
 
-func (p *Partition) apply(pm msg.Parsed) {
-	switch pm.MsgType {
-	case msg.Write:
-		p.applyWrite(pm)
-	case msg.Transaction:
-		p.applyTransaction(pm)
-	case msg.Decision:
-		p.applyDecision(pm)
+func (p *Partition) apply(pms []msg.Parsed) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	for _, pm := range pms {
+		switch pm.MsgType {
+		case msg.Write:
+			p.applyWrite(pm)
+		case msg.Transaction:
+			p.applyTransaction(pm)
+		case msg.Decision:
+			p.applyDecision(pm)
+		}
+		p.atIndex = pm.Index
 	}
 }
 
@@ -141,15 +176,8 @@ func (p *Partition) applyWrite(pm msg.Parsed) {
 	body := pm.Body.(*msg.WriteKeyValueMessage)
 	if p.owns(body.Key) {
 		p.logf("Adding %v = %v @ %d", body.Key, body.Value, pm.Index)
-		p.lock.Lock()
 		p.values[body.Key] = append(p.values[body.Key],
 			value{index: pm.Index, value: body.Value, pending: false})
-		p.atIndex = pm.Index
-		p.lock.Unlock()
-	} else {
-		p.lock.Lock()
-		p.atIndex = pm.Index
-		p.lock.Unlock()
 	}
 }
 
@@ -165,13 +193,9 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 		}
 	}
 	if len(tx.keys) == 0 {
-		p.lock.Lock()
-		p.atIndex = pm.Index
-		p.lock.Unlock()
 		return
 	}
 	p.logf("Processing transaction %+v @ %d", body, pm.Index)
-	p.lock.Lock()
 	p.transactions[pm.Index] = tx
 	for _, write := range body.Writes {
 		if p.owns(write.Key) {
@@ -179,15 +203,10 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 				value{index: pm.Index, value: write.Value, pending: true})
 		}
 	}
-	p.atIndex = pm.Index
-	p.lock.Unlock()
 }
 
 func (p *Partition) applyDecision(pm msg.Parsed) {
 	body := pm.Body.(*msg.DecisionMessage)
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	p.atIndex = pm.Index
 	tx, exists := p.transactions[body.Tx]
 	if !exists {
 		return
@@ -271,8 +290,10 @@ func (p *Partition) owns(key string) bool {
 }
 
 type MemoryStats struct {
-	Heap uint64 `json:"heapMB"`
-	Sys  uint64 `json:"sysMB"`
+	Heap         uint64 `json:"heapMB"`
+	Sys          uint64 `json:"sysMB"`
+	NumGC        uint32 `json:"numGC"`
+	TotalPauseMS uint64 `json:"totalGCPause-ms"`
 }
 
 type Stats struct {
@@ -305,12 +326,22 @@ func (p *Partition) Stats() Stats {
 	runtime.ReadMemStats(&ms)
 	s.MemStats.Heap = ms.Alloc / oneMB
 	s.MemStats.Sys = ms.Sys / oneMB
+	s.MemStats.NumGC = ms.NumGC
+	s.MemStats.TotalPauseMS = ms.PauseTotalNs / 1000000
 	return s
 }
 
+var hashPool = sync.Pool{
+	New: func() interface{} {
+		return fnv.New32()
+	},
+}
+
 func hash(k string, sz uint32) uint32 {
-	h := fnv.New32()
+	h := hashPool.Get().(hsh.Hash32)
 	io.WriteString(h, k)
 	r := h.Sum32()
+	h.Reset()
+	hashPool.Put(h)
 	return r % sz
 }
