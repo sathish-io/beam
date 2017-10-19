@@ -13,6 +13,8 @@ import (
 	"gopkg.in/Shopify/sarama.v1"
 )
 
+const loggingEnabled = false
+
 func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *config.Beam) (*Partition, error) {
 	pc, err := c.ConsumePartition("beam", 0, 0)
 	if err != nil {
@@ -87,6 +89,12 @@ func (p *Partition) start() {
 	}
 }
 
+func (p *Partition) logf(format string, params ...interface{}) {
+	if loggingEnabled {
+		fmt.Printf("%d: "+format+"\n", append([]interface{}{p.partition}, params...)...)
+	}
+}
+
 var txTimeout = time.Second * 3
 
 // timeoutTransactions will write abort descision for any transaction that been running
@@ -101,7 +109,7 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 	}
 	p.lock.Unlock()
 	for _, idx := range toAbort {
-		fmt.Printf("%d: Transaction Watcher: Aborting %d\n", p.partition, idx)
+		p.logf("Transaction Watcher: Aborting %d", idx)
 		m := msg.DecisionMessage{Tx: idx, Commit: false}
 		enc, err := m.Encode()
 		if err != nil {
@@ -132,7 +140,7 @@ func (p *Partition) apply(pm msg.Parsed) {
 func (p *Partition) applyWrite(pm msg.Parsed) {
 	body := pm.Body.(*msg.WriteKeyValueMessage)
 	if p.owns(body.Key) {
-		fmt.Printf("%d: Adding %v = %v @ %v\n", p.partition, body.Key, body.Value, pm.Index)
+		p.logf("Adding %v = %v @ %d", body.Key, body.Value, pm.Index)
 		p.lock.Lock()
 		p.values[body.Key] = append(p.values[body.Key],
 			value{index: pm.Index, value: body.Value, pending: false})
@@ -152,7 +160,7 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 	}
 	for _, write := range body.Writes {
 		if p.owns(write.Key) {
-			fmt.Printf("%d: Pending on transaction, adding %v = %v @ %v\n", p.partition, write.Key, write.Value, pm.Index)
+			p.logf("Pending on transaction, adding %v = %v @ %d", write.Key, write.Value, pm.Index)
 			tx.keys = append(tx.keys, write.Key)
 		}
 	}
@@ -162,7 +170,7 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 		p.lock.Unlock()
 		return
 	}
-	fmt.Printf("%d: Processing transaction %+v @ %v\n", p.partition, body, pm.Index)
+	p.logf("Processing transaction %+v @ %d", body, pm.Index)
 	p.lock.Lock()
 	p.transactions[pm.Index] = tx
 	for _, write := range body.Writes {
@@ -185,7 +193,7 @@ func (p *Partition) applyDecision(pm msg.Parsed) {
 		return
 	}
 	delete(p.transactions, body.Tx)
-	fmt.Printf("%d: Processing decision %+v @ %v of %v\n", p.partition, body, pm.Index, tx)
+	p.logf("Processing decision %+v @ %d of %v\n", body, pm.Index, tx)
 	if body.Commit {
 		for _, key := range tx.keys {
 			values := p.values[key]
@@ -216,7 +224,7 @@ func (p *Partition) fetchAt(key string, idx int64) (string, int64) {
 	// For now, this returns earlier versions when transaction outcomes are unknown.
 	for i := len(versions) - 1; i >= 0; i-- {
 		if versions[i].pending {
-			fmt.Printf("%d: skipping pending value of %v = %v @ %v\n",
+			p.logf("skipping pending value of %v = %v @ %d",
 				p.partition, key, versions[i].value, versions[i].index)
 			continue
 		}
@@ -235,8 +243,8 @@ func (p *Partition) fetch(key string) (string, int64) {
 	// For now, this returns earlier versions when transaction outcomes are unknown.
 	for i := len(versions) - 1; i >= 0; i-- {
 		if versions[i].pending {
-			fmt.Printf("%d: skipping pending value of %v = %v @ %v\n",
-				p.partition, key, versions[i].value, versions[i].index)
+			p.logf("skipping pending value of %v = %v @ %d",
+				key, versions[i].value, versions[i].index)
 			continue
 		}
 		return versions[i].value, versions[i].index
