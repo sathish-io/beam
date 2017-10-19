@@ -2,7 +2,6 @@ package view
 
 import (
 	"fmt"
-	hsh "hash"
 	"hash/fnv"
 	"io"
 	"runtime"
@@ -331,17 +330,9 @@ func (p *Partition) Stats() Stats {
 	return s
 }
 
-var hashPool = sync.Pool{
-	New: func() interface{} {
-		return fnv.New32()
-	},
-}
-
 func hash(k string, sz uint32) uint32 {
-	h := hashPool.Get().(hsh.Hash32)
+	h := fnv.New32()
 	io.WriteString(h, k)
 	r := h.Sum32()
-	h.Reset()
-	hashPool.Put(h)
 	return r % sz
 }
