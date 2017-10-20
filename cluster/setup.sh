@@ -2,7 +2,7 @@
 set -ex
 
 syncdir() {
-  rsync -a --progress --checksum --exclude=bin/ ./ $1.beam:protobeam
+  rsync -a --progress --del --checksum --exclude=pkg/ --exclude=.git/ --exclude=bin/ ./ $1.beam:protobeam
 }
 
 syncdir kafka
