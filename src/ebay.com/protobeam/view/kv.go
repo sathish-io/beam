@@ -76,6 +76,9 @@ func (p *Partition) start() {
 	flush := func() {
 		if len(pms) > 0 {
 			p.apply(pms)
+			for i := range pms {
+				pms[i].Body = nil // don't leave pointers around in the re-used array
+			}
 			pms = pms[:0]
 		}
 	}
