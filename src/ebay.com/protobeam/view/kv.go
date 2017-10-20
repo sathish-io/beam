@@ -25,7 +25,7 @@ func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *conf
 		consumer:      pc,
 		numPartitions: uint32(len(cfg.Partitions)),
 		partition:     uint32(cfg.Partition),
-		values:        make(map[string][]value, 16),
+		values:        make(map[string][]value, 2048),
 		transactions:  make(map[int64]transaction, 16),
 		addr:          cfg.Partitions[cfg.Partition],
 	}
