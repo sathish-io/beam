@@ -8,6 +8,7 @@ import (
 
 	"ebay.com/protobeam/config"
 	"ebay.com/protobeam/msg"
+	"github.com/rcrowley/go-metrics"
 	"github.com/segmentio/fasthash/fnv1a"
 	"gopkg.in/Shopify/sarama.v1"
 )
@@ -29,6 +30,7 @@ func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, httpBind 
 		transactions:  make(map[int64]transaction, 16),
 		addr:          cfg.Partitions[cfg.Partition],
 		httpBind:      httpBind,
+		metrics:       cfg.Metrics,
 	}
 	return &p, nil
 }
@@ -60,6 +62,7 @@ type Partition struct {
 	partition     uint32
 	producer      sarama.SyncProducer
 	consumer      sarama.PartitionConsumer
+	metrics       metrics.Registry
 }
 
 type value struct {
@@ -165,7 +168,12 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 }
 
 func (p *Partition) apply(pms []msg.Parsed) {
+	mLockWait := metrics.GetOrRegisterTimer("partition.apply.lock.wait", p.metrics)
+	mApply := metrics.GetOrRegisterTimer("parition.apply.chunk", p.metrics)
+	tmStart := time.Now()
 	p.lock.Lock()
+	tmLocked := time.Now()
+	mLockWait.Update(tmLocked.Sub(tmStart))
 	defer p.lock.Unlock()
 	for _, pm := range pms {
 		switch pm.MsgType {
@@ -178,6 +186,7 @@ func (p *Partition) apply(pms []msg.Parsed) {
 		}
 		p.atIndex = pm.Index
 	}
+	mApply.UpdateSince(tmLocked)
 }
 
 func (p *Partition) applyWrite(pm msg.Parsed) {
@@ -280,8 +289,13 @@ func (p *Partition) fetch(key string) (string, int64) {
 }
 
 func (p *Partition) check(key string, start int64, through int64) (ok bool, pending bool) {
+	mLockWait := metrics.GetOrRegisterTimer("partition.check.lock.wait", p.metrics)
+	mCheck := metrics.GetOrRegisterTimer("partition.check.check", p.metrics)
+	tmStart := time.Now()
 	p.lock.RLock()
+	tmLocked := time.Now()
 	defer p.lock.RUnlock()
+
 	ok = true
 	pending = p.atIndex < through
 	for _, version := range p.values[key] {
@@ -290,6 +304,8 @@ func (p *Partition) check(key string, start int64, through int64) (ok bool, pend
 			pending = pending || version.pending
 		}
 	}
+	mCheck.UpdateSince(tmLocked)
+	mLockWait.Update(tmLocked.Sub(tmStart))
 	return
 }
 

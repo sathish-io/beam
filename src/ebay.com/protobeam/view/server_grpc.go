@@ -3,7 +3,9 @@ package view
 import (
 	"fmt"
 	"net"
+	"time"
 
+	"ebay.com/protobeam/table"
 	context "golang.org/x/net/context"
 	grpc "google.golang.org/grpc"
 )
@@ -59,4 +61,15 @@ func (s *serverGrpc) Stats(ctx context.Context, r *StatsRequest) (*StatsResult, 
 func (s *serverGrpc) SampleKeys(ctx context.Context, r *SampleKeysRequest) (*SampleKeysResult, error) {
 	keys := s.p.sampleKeys(r.MaxKeys)
 	return &SampleKeysResult{Keys: keys}, nil
+}
+
+func (s *serverGrpc) Metrics(ctx context.Context, r *MetricsRequest) (*MetricsResult, error) {
+	t := table.MetricsTable(s.p.metrics, time.Millisecond)
+	res := MetricsResult{
+		Rows: make([]*MetricsResult_Row, len(t)),
+	}
+	for i, tr := range t {
+		res.Rows[i] = &MetricsResult_Row{Cells: tr}
+	}
+	return &res, nil
 }

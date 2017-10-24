@@ -8,7 +8,9 @@ import (
 	_ "net/http/pprof"
 	"strconv"
 	"strings"
+	"time"
 
+	"ebay.com/protobeam/table"
 	"ebay.com/protobeam/web"
 	"github.com/julienschmidt/httprouter"
 )
@@ -20,6 +22,7 @@ func partitionMux(p *Partition) http.Handler {
 	m.GET("/fetchAt", ps.fetchAt)
 	m.GET("/check", ps.check)
 	m.GET("/stats", ps.stats)
+	m.GET("/metrics", ps.metrics)
 	m.NotFound = http.DefaultServeMux
 	return m
 }
@@ -109,6 +112,11 @@ func (s *partitionServer) stats(w http.ResponseWriter, r *http.Request, _ httpro
 	stats := s.p.Stats()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(&stats)
+}
+
+func (s *partitionServer) metrics(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	w.Header().Set("Content-Type", "text/plain")
+	table.PrettyPrint(w, table.MetricsTable(s.p.metrics, time.Millisecond), true, false)
 }
 
 type fetchResult struct {

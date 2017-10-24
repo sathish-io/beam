@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -54,6 +55,15 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	io.WriteString(w, "\n\n")
 
 	table.PrettyPrint(w, table.MetricsTable(s.metrics, time.Millisecond), true, false)
+	for i := 0; i < s.source.NumPartitions(); i++ {
+		fmt.Fprintf(w, "\nPartition Metrics: %d\n", i)
+		pm, err := s.source.Metrics(i)
+		if err != nil {
+			fmt.Fprintf(w, "** Error reading metrics: %v\n", err)
+			continue
+		}
+		table.PrettyPrint(w, pm, true, false)
+	}
 }
 
 type perfOneResults []perfOneResult

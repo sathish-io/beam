@@ -34,6 +34,10 @@ type Client struct {
 	m   metrics.Registry
 }
 
+func (c *Client) NumPartitions() int {
+	return len(c.p)
+}
+
 func (c *Client) viewClient(partition int) PartitionViewClient {
 	return c.p[partition]
 }
@@ -117,6 +121,18 @@ func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
 		sidx++
 	}
 	return res, errors.Any(perrors...)
+}
+
+func (c *Client) Metrics(p int) ([][]string, error) {
+	m, err := c.viewClient(p).Metrics(context.Background(), &MetricsRequest{})
+	if err != nil {
+		return nil, err
+	}
+	t := make([][]string, len(m.Rows))
+	for i, r := range m.Rows {
+		t[i] = r.Cells
+	}
+	return t, nil
 }
 
 func (c *Client) Stats() ([]StatsResult, error) {

@@ -7,6 +7,7 @@ service PartitionView {
 	rpc check(CheckRequest) returns (CheckResult) {}
 	rpc stats(StatsRequest) returns (StatsResult) {}
 	rpc sampleKeys(SampleKeysRequest) returns (SampleKeysResult) {}
+	rpc metrics(MetricsRequest) returns (MetricsResult) {}
 }
 
 message FetchRequest {
@@ -59,4 +60,14 @@ message SampleKeysRequest {
 
 message SampleKeysResult {
 	repeated string keys = 1;
+}
+
+message MetricsRequest {
+}
+
+message MetricsResult {
+	message Row {
+		repeated string cells = 1;
+	}
+	repeated Row rows = 1;
 }
