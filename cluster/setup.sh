@@ -2,7 +2,7 @@
 set -ex
 
 syncdir() {
-  rsync -a --progress --prune-empty-dirs --del --checksum  dist cluster $1.beam:protobeam
+  rsync -a --progress --compress --prune-empty-dirs --del --checksum  dist cluster $1.beam:protobeam
 }
 
 syncdir kafka
