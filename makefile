@@ -3,14 +3,15 @@ ROOT=$(shell pwd)
 PACKAGE=ebay.com/protobeam
 VPATH=src/${PACKAGE}/msg:src/${PACKAGE}/view
 
-phoney: clean get buld test run
+.PHONY: clean get test run dist clustersetup
 
 all: get build test run
 
 clean:
-	rm -rf src/vendor
-	rm -rf bin
-	rm -rf pkg
+	-rm -rf src/vendor
+	-rm -rf bin
+	-rm -rf pkg
+	-rm -rf dist
 	-rm src/${PACKAGE}/msg/codec.go
 	-rm src/${PACKAGE}/msg/beam.pb.go
 	-rm src/${PACKAGE}/view/part.pb.go
@@ -60,3 +61,11 @@ test:
 run:
 	# go goreman from https://github.com/mattn/goreman
 	goreman start
+
+dist:
+	mkdir -p dist
+	GOOS=linux GOARCH=amd64 go build -o dist/protobeam ${PACKAGE} 
+	cp c3.json dist
+	
+clustersetup: dist
+	cluster/setup.sh

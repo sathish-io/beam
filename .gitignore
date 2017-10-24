@@ -1,6 +1,7 @@
 /src/vendor
 /pkg
 /bin
+/dist
 .DS_Store
 profile*.pdf
 *.cpu

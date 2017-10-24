@@ -1,12 +1,12 @@
 #!/bin/bash
 set -ex
 
-protobeam/cluster/golang.sh
-
 cd protobeam
-make build
+mkdir -p bin
 
 sudo cp cluster/api.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl restart api
+sudo systemctl stop api
+cp dist/* bin
+sudo systemctl start api
 sudo systemctl status api
