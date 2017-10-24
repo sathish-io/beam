@@ -2,8 +2,10 @@ package view
 
 import (
 	"sort"
+	"sync"
 
 	"ebay.com/protobeam/config"
+	"ebay.com/protobeam/errors"
 	context "golang.org/x/net/context"
 	grpc "google.golang.org/grpc"
 )
@@ -57,6 +59,30 @@ func (c *Client) Check(key string, start int64, through int64) (ok bool, pending
 		return false, false, err
 	}
 	return res.Ok, res.Pending, nil
+}
+
+func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
+	samples := make([][]string, len(c.p))
+	perrors := make([]error, len(c.p))
+	var wg sync.WaitGroup
+	wg.Add(len(c.p))
+	for idx := range c.p {
+		go func(idx int) {
+			pres, err := c.p[idx].SampleKeys(context.Background(), &SampleKeysRequest{MaxKeys: maxKeys / uint32(len(c.p))})
+			if err != nil {
+				perrors[idx] = err
+			} else {
+				samples[idx] = pres.Keys
+			}
+			wg.Done()
+		}(idx)
+	}
+	wg.Wait()
+	res := samples[0]
+	for p := 1; p < len(c.p); p++ {
+		res = append(res, samples[p]...)
+	}
+	return res, errors.Any(perrors...)
 }
 
 func (c *Client) Stats() ([]StatsResult, error) {

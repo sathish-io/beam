@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"ebay.com/protobeam/errors"
 	"ebay.com/protobeam/msg"
 	"ebay.com/protobeam/view"
 	"ebay.com/protobeam/web"
@@ -42,6 +43,7 @@ func (s *Server) Run() error {
 	m.POST("/append", s.append)
 	m.POST("/concat", s.concat)
 	m.POST("/fill", s.fill)
+	m.GET("/sampleKeys", s.sample)
 	m.NotFound = http.DefaultServeMux
 	logger := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[API] %v %v\n", r.Method, r.URL)
@@ -109,6 +111,28 @@ func max(a, b int) int {
 	return b
 }
 
+func (s *Server) sample(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	m := r.URL.Query().Get("m")
+	max := uint32(100)
+	if m != "" {
+		pm, err := strconv.ParseUint(m, 10, 32)
+		if err != nil {
+			web.WriteError(w, http.StatusBadRequest, "Unable to parse queryString params 'm': %v", err)
+			return
+		}
+		max = uint32(pm)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	sample, err := s.source.SampleKeys(max)
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Unable to fetch sample keys: %v", err)
+		return
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("  ", "")
+	enc.Encode(sample)
+}
+
 func (s *Server) writeOne(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	k := r.URL.Query().Get("k")
 	v, err := ioutil.ReadAll(r.Body)
@@ -149,15 +173,6 @@ func (s *Server) append(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
 }
 
-func anyErr(e ...error) error {
-	for _, x := range e {
-		if x != nil {
-			return x
-		}
-	}
-	return nil
-}
-
 func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	// k1 + k2 -> k3
 	k1 := r.URL.Query().Get("k1")
@@ -166,7 +181,7 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 
 	v1, idx1, err1 := s.source.Fetch(k1)
 	v2, idx2, err2 := s.source.Fetch(k2)
-	if err := anyErr(err1, err2); err != nil {
+	if err := errors.Any(err1, err2); err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Error reading starting values: %v", err)
 		return
 	}

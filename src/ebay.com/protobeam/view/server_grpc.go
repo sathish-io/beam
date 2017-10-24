@@ -54,5 +54,9 @@ func (s *serverGrpc) Check(ctx context.Context, r *CheckRequest) (*CheckResult, 
 
 func (s *serverGrpc) Stats(ctx context.Context, r *StatsRequest) (*StatsResult, error) {
 	return s.p.Stats(), nil
+}
 
+func (s *serverGrpc) SampleKeys(ctx context.Context, r *SampleKeysRequest) (*SampleKeysResult, error) {
+	keys := s.p.sampleKeys(r.MaxKeys)
+	return &SampleKeysResult{Keys: keys}, nil
 }

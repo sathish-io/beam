@@ -293,6 +293,25 @@ func (p *Partition) check(key string, start int64, through int64) (ok bool, pend
 	return
 }
 
+func (p *Partition) sampleKeys(maxKeys uint32) []string {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	l := uint32(len(p.values))
+	if l > maxKeys {
+		l = maxKeys
+	}
+	res := make([]string, l)
+	idx := 0
+	for k := range p.values {
+		res[idx] = k
+		idx++
+		if idx == len(res) {
+			break
+		}
+	}
+	return res
+}
+
 func (p *Partition) owns(key string) bool {
 	return hash(key, p.numPartitions) == p.partition
 }

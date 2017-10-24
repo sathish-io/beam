@@ -6,6 +6,7 @@ service PartitionView {
 	rpc fetchAt(FetchAtRequest) returns (FetchResult) {}
 	rpc check(CheckRequest) returns (CheckResult) {}
 	rpc stats(StatsRequest) returns (StatsResult) {}
+	rpc sampleKeys(SampleKeysRequest) returns (SampleKeysResult) {}
 }
 
 message FetchRequest {
@@ -50,4 +51,12 @@ message MemStats {
 	uint64	sys			 = 2;
 	uint64	totalPauseMs = 3;
 	uint32  numGC		 = 4;
+}
+
+message SampleKeysRequest {
+	uint32 maxKeys = 1;
+}
+
+message SampleKeysResult {
+	repeated string keys = 1;
 }
