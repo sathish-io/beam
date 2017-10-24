@@ -24,6 +24,7 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		web.WriteError(w, http.StatusBadRequest, "Unable to parse concurrency param 'n': %v", err)
 		return
 	}
+	s.metrics.UnregisterAll() // start with a clean set of metrics
 	keys, err := s.source.SampleKeys(uint32(100) * uint32(n))
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to fetch starting keys: %v", err)
