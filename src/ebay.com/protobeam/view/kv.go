@@ -298,10 +298,15 @@ func (p *Partition) check(key string, start int64, through int64) (ok bool, pend
 
 	ok = true
 	pending = p.atIndex < through
-	for _, version := range p.values[key] {
+	versions := p.values[key]
+	for i := len(versions) - 1; i >= 0; i-- {
+		version := &versions[i]
 		if version.index > start && version.index < through {
 			ok = false
 			pending = pending || version.pending
+		}
+		if version.index < start {
+			break
 		}
 	}
 	mCheck.UpdateSince(tmLocked)

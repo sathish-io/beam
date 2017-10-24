@@ -240,7 +240,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 				break
 			}
 			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src1)
-			time.Sleep(1 * time.Millisecond)
+			time.Sleep(100 * time.Microsecond)
 		}
 	}()
 	go func() {
@@ -252,7 +252,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 				break
 			}
 			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src2)
-			time.Sleep(1 * time.Millisecond)
+			time.Sleep(100 * time.Microsecond)
 		}
 	}()
 	wg2.Wait()
