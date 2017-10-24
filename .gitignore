@@ -6,3 +6,4 @@ profile*.pdf
 *.cpu
 src/ebay.com/protobeam/msg/codec.go
 src/ebay.com/protobeam/msg/beam.pb.go
+src/ebay.com/protobeam/view/part.pb.go

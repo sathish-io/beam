@@ -72,13 +72,13 @@ func (s *Server) statsTable(w http.ResponseWriter, r *http.Request, _ httprouter
 	for r, s := range stats {
 		table[r+1] = []string{
 			strconv.FormatUint(uint64(s.Partition), 10),
-			strconv.Itoa(s.Keys),
-			strconv.Itoa(s.Txs),
+			strconv.FormatUint(uint64(s.Keys), 10),
+			strconv.FormatUint(uint64(s.Txs), 10),
 			strconv.FormatInt(s.LastIndex, 10),
 			strconv.FormatUint(s.MemStats.Heap, 10),
 			strconv.FormatUint(s.MemStats.Sys, 10),
 			strconv.FormatUint(uint64(s.MemStats.NumGC), 10),
-			strconv.FormatUint(s.MemStats.TotalPauseMS, 10),
+			strconv.FormatUint(s.MemStats.TotalPauseMs, 10),
 		}
 	}
 	prettyPrintTable(w, table)

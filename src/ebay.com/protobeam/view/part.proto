@@ -1,0 +1,53 @@
+syntax = "proto3";
+package view;
+
+service PartitionView {
+	rpc fetch(FetchRequest) returns (FetchResult) {}
+	rpc fetchAt(FetchAtRequest) returns (FetchResult) {}
+	rpc check(CheckRequest) returns (CheckResult) {}
+	rpc stats(StatsRequest) returns (StatsResult) {}
+}
+
+message FetchRequest {
+	string key = 1;
+}
+
+message FetchResult {
+	int64  index  = 1;
+	bool   exists = 2;
+	string value  = 3;
+}
+
+message FetchAtRequest {
+	string key   = 1;
+	int64  index = 2;
+}
+
+message CheckRequest {
+	string key     = 1;
+	int64  start   = 2;
+	int64  through = 3;
+}
+
+message CheckResult {
+	bool ok		 = 1;
+	bool pending = 2;
+}
+
+message StatsRequest {
+}
+
+message StatsResult {
+	uint32 	partition 	= 1;
+	uint32 	keys		= 2;
+	uint32 	txs			= 3;
+	int64	lastIndex	= 4;
+	MemStats memStats	= 5;
+}
+
+message MemStats {
+	uint64	heap 		 = 1;
+	uint64	sys			 = 2;
+	uint64	totalPauseMs = 3;
+	uint32  numGC		 = 4;
+}

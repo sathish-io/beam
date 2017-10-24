@@ -1,72 +1,87 @@
 package view
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/url"
 	"sort"
-	"strconv"
 
 	"ebay.com/protobeam/config"
+	context "golang.org/x/net/context"
+	grpc "google.golang.org/grpc"
 )
 
-func NewClient(c *config.Beam) *Client {
-	return &Client{c}
+func NewClient(c *config.Beam) (*Client, error) {
+	client := Client{
+		cfg: c,
+		p:   make([]PartitionViewClient, len(c.Partitions)),
+	}
+	for p := range c.Partitions {
+		conn, err := grpc.Dial(c.Partitions[p], grpc.WithInsecure())
+		if err != nil {
+			return nil, err
+		}
+		client.p[p] = NewPartitionViewClient(conn)
+	}
+	return &client, nil
 }
 
 type Client struct {
 	cfg *config.Beam
+	p   []PartitionViewClient
+}
+
+func (c *Client) viewClient(partition int) PartitionViewClient {
+	return c.p[partition]
 }
 
 func (c *Client) Fetch(key string) (string, int64, error) {
-	p := url.Values{}
-	p.Add("k", key)
-	var res fetchResult
-	err := c.get(c.partition(key), "/fetch", p, &res)
-	return res.Value, res.Index, err
+	pc := c.viewClient(c.partition(key))
+	res, err := pc.Fetch(context.Background(), &FetchRequest{key})
+	if err != nil {
+		return "", 0, err
+	}
+	return res.Value, res.Index, nil
 }
 
 func (c *Client) FetchAt(key string, idx int64) (string, int64, error) {
-	p := url.Values{}
-	p.Add("k", key)
-	p.Add("i", strconv.FormatInt(idx, 10))
-	var res fetchResult
-	err := c.get(c.partition(key), "/fetchAt", p, &res)
-	return res.Value, res.Index, err
+	pc := c.viewClient(c.partition(key))
+	res, err := pc.FetchAt(context.Background(), &FetchAtRequest{Key: key, Index: idx})
+	if err != nil {
+		return "", 0, err
+	}
+	return res.Value, res.Index, nil
 }
 
 func (c *Client) Check(key string, start int64, through int64) (ok bool, pending bool, err error) {
-	p := url.Values{}
-	p.Add("k", key)
-	p.Add("s", strconv.FormatInt(start, 10))
-	p.Add("t", strconv.FormatInt(through, 10))
-	var res checkResult
-	err = c.get(c.partition(key), "/check", p, &res)
-	return res.Ok, res.Pending, err
+	pc := c.viewClient(c.partition(key))
+	res, err := pc.Check(context.Background(), &CheckRequest{Key: key, Start: start, Through: through})
+	if err != nil {
+		return false, false, err
+	}
+	return res.Ok, res.Pending, nil
 }
 
-func (c *Client) Stats() ([]Stats, error) {
+func (c *Client) Stats() ([]StatsResult, error) {
 	numParts := len(c.cfg.Partitions)
 	type res struct {
-		stats Stats
+		stats *StatsResult
 		err   error
 	}
 	resCh := make(chan res, numParts)
 	for p := 0; p < numParts; p++ {
 		go func(p int) {
-			var s Stats
-			err := c.get(p, "/stats", nil, &s)
-			resCh <- res{s, err}
+			pc := c.viewClient(p)
+			sr, err := pc.Stats(context.Background(), &StatsRequest{})
+			resCh <- res{sr, err}
 		}(p)
 	}
-	results := make([]Stats, 0, numParts)
+	results := make([]StatsResult, 0, numParts)
 	var err error
 	for p := 0; p < numParts; p++ {
 		r := <-resCh
 		if r.err != nil {
 			err = r.err
+			continue
 		}
-		results = append(results, r.stats)
+		results = append(results, *r.stats)
 	}
 	sort.Slice(results, func(a, b int) bool {
 		return results[a].Partition < results[b].Partition
@@ -76,17 +91,4 @@ func (c *Client) Stats() ([]Stats, error) {
 
 func (c *Client) partition(key string) int {
 	return int(hash(key, uint32(len(c.cfg.Partitions))))
-}
-
-func (c *Client) get(partition int, path string, params url.Values, resBody interface{}) error {
-	req, err := http.NewRequest(http.MethodGet, "http://"+c.cfg.Partitions[partition]+path+"?"+params.Encode(), nil)
-	if err != nil {
-		return err
-	}
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer res.Body.Close()
-	return json.NewDecoder(res.Body).Decode(resBody)
 }

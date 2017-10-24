@@ -1,7 +1,7 @@
 export GOPATH=$(shell pwd)
 ROOT=$(shell pwd)
 PACKAGE=ebay.com/protobeam
-VPATH=src/${PACKAGE}/msg
+VPATH=src/${PACKAGE}/msg:src/${PACKAGE}/view
 
 phoney: clean get buld test run
 
@@ -13,6 +13,7 @@ clean:
 	rm -rf pkg
 	-rm src/${PACKAGE}/msg/codec.go
 	-rm src/${PACKAGE}/msg/beam.pb.go
+	-rm src/${PACKAGE}/view/part.pb.go
 
 get:
 	rm -rf src/vendor
@@ -21,9 +22,15 @@ get:
 	mkdir -p src/vendor/github.com
 	git clone https://github.com/julienschmidt/httprouter.git src/vendor/github.com/julienschmidt/httprouter
 	git clone https://github.com/segmentio/fasthash.git src/vendor/github.com/segmentio/fasthash
-	
+
 	git clone https://github.com/gogo/protobuf src/vendor/github.com/gogo/protobuf
 	go install vendor/github.com/gogo/protobuf/protoc-gen-gogoslick
+
+	git clone https://github.com/golang/net.git src/vendor/golang.org/x/net
+	git clone https://github.com/golang/text.git src/vendor/golang.org/x/text
+	git clone https://github.com/grpc/grpc-go.git src/vendor/google.golang.org/grpc
+	git clone https://github.com/golang/protobuf src/vendor/github.com/golang/protobuf
+	git clone https://github.com/google/go-genproto src/vendor/google.golang.org/genproto
 	
 	git clone https://github.com/rcrowley/go-metrics src/vendor/github.com/rcrowley/go-metrics
 	git clone https://github.com/davecgh/go-spew src/vendor/github.com/davecgh/go-spew
@@ -40,8 +47,11 @@ get:
 
 beam.pb.go: beam.proto
 	PATH=${ROOT}/bin:${PATH} protoc --gogoslick_out=src/ebay.com/protobeam/msg -I src/ebay.com/protobeam/msg beam.proto
-		
-build: beam.pb.go
+
+part.pb.go: part.proto
+	PATH=${ROOT}/bin:${PATH} protoc --gogoslick_out=plugins=grpc:src/ebay.com/protobeam/view -I src/ebay.com/protobeam/view part.proto
+			
+build: beam.pb.go part.pb.go
 	go install ${PACKAGE}/...
 
 test:

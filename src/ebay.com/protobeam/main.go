@@ -20,6 +20,7 @@ func main() {
 	apiBind := flag.String("api", "", "If set start an API Server at this address")
 	cfgFile := flag.String("cfg", "pb.json", "Protobeam config file")
 	partIdx := flag.Int("p", -2, "Partition Number for this server to run [overrides value in config file]")
+	partHttp := flag.String("phttp", "", "If set starts an HTTP API to the PartitioView service")
 	startProfile := flag.String("sp", "", "If set will generate a CPU Profile to the named file for startup processing [unless the view hits the HWM]")
 	flag.Parse()
 
@@ -53,7 +54,7 @@ func main() {
 	}
 
 	if cfg.Partition >= 0 {
-		ps, err := view.NewPartionServer(c, p, cfg)
+		ps, err := view.NewPartionServer(c, p, *partHttp, cfg)
 		if err != nil {
 			log.Fatalf("Unable to initialize partition: %v", err)
 		}
@@ -70,7 +71,11 @@ func main() {
 	}
 
 	if *apiBind != "" {
-		apiServer := api.New(*apiBind, view.NewClient(cfg), p)
+		viewClient, err := view.NewClient(cfg)
+		if err != nil {
+			log.Fatalf("Unable to initialize view client: %v", err)
+		}
+		apiServer := api.New(*apiBind, viewClient, p)
 		go fmt.Printf("%v\n", apiServer.Run())
 	}
 

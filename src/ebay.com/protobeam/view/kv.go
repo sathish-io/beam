@@ -14,7 +14,7 @@ import (
 
 const loggingEnabled = false
 
-func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *config.Beam) (*Partition, error) {
+func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, httpBind string, cfg *config.Beam) (*Partition, error) {
 	pc, err := c.ConsumePartition("beam", 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to start partition consumer: %v", err)
@@ -28,14 +28,20 @@ func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, cfg *conf
 		values:        make(map[string][]value, 2048),
 		transactions:  make(map[int64]transaction, 16),
 		addr:          cfg.Partitions[cfg.Partition],
+		httpBind:      httpBind,
 	}
 	return &p, nil
 }
 
 func (p *Partition) Start() error {
 	// create & start the API server for this partition
-	if err := startServer(p.addr, p); err != nil {
+	if err := startGrpcServer(p.addr, p); err != nil {
 		return err
+	}
+	if p.httpBind != "" {
+		if err := startHttpServer(p.httpBind, p); err != nil {
+			return err
+		}
 	}
 	// start processing data from the log
 	go p.start()
@@ -48,6 +54,7 @@ type Partition struct {
 	values       map[string][]value    // [protected by lock]
 	transactions map[int64]transaction // [protected by lock]
 
+	httpBind      string
 	addr          string
 	numPartitions uint32
 	partition     uint32
@@ -290,21 +297,6 @@ func (p *Partition) owns(key string) bool {
 	return hash(key, p.numPartitions) == p.partition
 }
 
-type MemoryStats struct {
-	Heap         uint64 `json:"heapMB"`
-	Sys          uint64 `json:"sysMB"`
-	NumGC        uint32 `json:"numGC"`
-	TotalPauseMS uint64 `json:"totalGCPause-ms"`
-}
-
-type Stats struct {
-	Partition uint32      `json:"partition"`
-	Keys      int         `json:"keys"`
-	Txs       int         `json:"txs"`
-	LastIndex int64       `json:"lastIndex"`
-	MemStats  MemoryStats `json:"memStats"`
-}
-
 const oneMB = 1024 * 1024
 
 func (p *Partition) AtIndex() int64 {
@@ -314,13 +306,14 @@ func (p *Partition) AtIndex() int64 {
 	return i
 }
 
-func (p *Partition) Stats() Stats {
+func (p *Partition) Stats() *StatsResult {
 	p.lock.RLock()
-	s := Stats{
-		Keys:      len(p.values),
-		Txs:       len(p.transactions),
+	s := StatsResult{
+		Keys:      uint32(len(p.values)),
+		Txs:       uint32(len(p.transactions)),
 		LastIndex: p.atIndex,
 		Partition: p.partition,
+		MemStats:  new(MemStats),
 	}
 	p.lock.RUnlock()
 	var ms runtime.MemStats
@@ -328,8 +321,8 @@ func (p *Partition) Stats() Stats {
 	s.MemStats.Heap = ms.Alloc / oneMB
 	s.MemStats.Sys = ms.Sys / oneMB
 	s.MemStats.NumGC = ms.NumGC
-	s.MemStats.TotalPauseMS = ms.PauseTotalNs / 1000000
-	return s
+	s.MemStats.TotalPauseMs = ms.PauseTotalNs / 1000000
+	return &s
 }
 
 func hash(k string, sz uint32) uint32 {
