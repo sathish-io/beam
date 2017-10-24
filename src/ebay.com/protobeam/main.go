@@ -75,7 +75,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to initialize view client: %v", err)
 		}
-		apiServer := api.New(*apiBind, viewClient, p)
+		apiServer := api.New(*apiBind, cfg.Metrics, viewClient, p)
 		go fmt.Printf("%v\n", apiServer.Run())
 	}
 

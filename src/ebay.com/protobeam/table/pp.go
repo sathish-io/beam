@@ -1,4 +1,4 @@
-package api
+package table
 
 import (
 	"bufio"
@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// prettyPrintTable prints 't' as a nicely formatted table
+// PrettyPrint prints 't' as a nicely formatted table
 // if hasHeaderRow / hasFooterRow is true, then a divider will be added between
 // the header and/or footer rows
-func prettyPrintTable(dest io.Writer, t [][]string, hasHeaderRow, hasFooterRow bool) {
+func PrettyPrint(dest io.Writer, t [][]string, hasHeaderRow, hasFooterRow bool) {
 	w := bufio.NewWriterSize(dest, 256)
 	defer w.Flush()
 	for c := range t[0] {

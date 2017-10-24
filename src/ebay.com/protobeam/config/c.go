@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+
+	"github.com/rcrowley/go-metrics"
 )
 
 type Beam struct {
 	BrokerList []string `json:"brokers"`    // the list of kafka brokers in the cluster
 	Partitions []string `json:"partitions"` // the list of partition servers in partition order, implies total number of partitions
 	Partition  int      `json:"partition"`  // what partition should this process host? [can be overridden by -p flag], set to -1 to not run a partition view
+	Metrics    metrics.Registry
 }
 
 func Load(fn string) (*Beam, error) {
@@ -18,7 +21,10 @@ func Load(fn string) (*Beam, error) {
 		return nil, err
 	}
 	defer f.Close()
-	r := Beam{Partition: -1}
+	r := Beam{
+		Partition: -1,
+		Metrics:   metrics.NewRegistry(),
+	}
 	err = json.NewDecoder(bufio.NewReader(f)).Decode(&r)
 	return &r, err
 }

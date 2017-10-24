@@ -3,9 +3,11 @@ package view
 import (
 	"sort"
 	"sync"
+	"time"
 
 	"ebay.com/protobeam/config"
 	"ebay.com/protobeam/errors"
+	"github.com/rcrowley/go-metrics"
 	context "golang.org/x/net/context"
 	grpc "google.golang.org/grpc"
 )
@@ -14,6 +16,7 @@ func NewClient(c *config.Beam) (*Client, error) {
 	client := Client{
 		cfg: c,
 		p:   make([]PartitionViewClient, len(c.Partitions)),
+		m:   c.Metrics,
 	}
 	for p := range c.Partitions {
 		conn, err := grpc.Dial(c.Partitions[p], grpc.WithInsecure())
@@ -28,6 +31,7 @@ func NewClient(c *config.Beam) (*Client, error) {
 type Client struct {
 	cfg *config.Beam
 	p   []PartitionViewClient
+	m   metrics.Registry
 }
 
 func (c *Client) viewClient(partition int) PartitionViewClient {
@@ -35,6 +39,10 @@ func (c *Client) viewClient(partition int) PartitionViewClient {
 }
 
 func (c *Client) Fetch(key string) (string, int64, error) {
+	mt := metrics.GetOrRegisterTimer("client.fetch", c.m)
+	start := time.Now()
+	defer mt.UpdateSince(start)
+
 	pc := c.viewClient(c.partition(key))
 	res, err := pc.Fetch(context.Background(), &FetchRequest{key})
 	if err != nil {
@@ -44,6 +52,10 @@ func (c *Client) Fetch(key string) (string, int64, error) {
 }
 
 func (c *Client) FetchAt(key string, idx int64) (string, int64, error) {
+	mt := metrics.GetOrRegisterTimer("client.fetchAt", c.m)
+	start := time.Now()
+	defer mt.UpdateSince(start)
+
 	pc := c.viewClient(c.partition(key))
 	res, err := pc.FetchAt(context.Background(), &FetchAtRequest{Key: key, Index: idx})
 	if err != nil {
@@ -53,6 +65,10 @@ func (c *Client) FetchAt(key string, idx int64) (string, int64, error) {
 }
 
 func (c *Client) Check(key string, start int64, through int64) (ok bool, pending bool, err error) {
+	mt := metrics.GetOrRegisterTimer("client.check", c.m)
+	startTm := time.Now()
+	defer mt.UpdateSince(startTm)
+
 	pc := c.viewClient(c.partition(key))
 	res, err := pc.Check(context.Background(), &CheckRequest{Key: key, Start: start, Through: through})
 	if err != nil {
@@ -62,6 +78,10 @@ func (c *Client) Check(key string, start int64, through int64) (ok bool, pending
 }
 
 func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
+	mt := metrics.GetOrRegisterTimer("client.sampleKeys", c.m)
+	start := time.Now()
+	defer mt.UpdateSince(start)
+
 	samples := make([][]string, len(c.p))
 	perrors := make([]error, len(c.p))
 	var wg sync.WaitGroup
@@ -100,6 +120,10 @@ func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
 }
 
 func (c *Client) Stats() ([]StatsResult, error) {
+	mt := metrics.GetOrRegisterTimer("client.stats", c.m)
+	start := time.Now()
+	defer mt.UpdateSince(start)
+
 	numParts := len(c.cfg.Partitions)
 	type res struct {
 		stats *StatsResult

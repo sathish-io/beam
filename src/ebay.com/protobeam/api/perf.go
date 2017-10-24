@@ -1,12 +1,14 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
+	"ebay.com/protobeam/table"
 	"ebay.com/protobeam/web"
 	"github.com/julienschmidt/httprouter"
 )
@@ -39,15 +41,18 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		keyStart = keyEnd
 	}
 	wg.Wait()
-	table := make([][]string, n+2)
-	table[0] = []string{"n", "Count", "Commits", "Aborts", "Errors", "p25", "p50", "p90", "p99"}
+	pt := make([][]string, n+2)
+	pt[0] = []string{"n", "Count", "Commits", "Aborts", "Errors", "p25", "p50", "p90", "p99"}
 	for idx, r := range res {
-		table[idx+1] = r.results(strconv.Itoa(idx))
+		pt[idx+1] = r.results(strconv.Itoa(idx))
 	}
-	table[len(table)-1] = res.totals().results("Totals")
+	pt[len(pt)-1] = res.totals().results("Totals")
 
 	w.Header().Set("Content-Type", "text/plain")
-	prettyPrintTable(w, table, true, true)
+	table.PrettyPrint(w, pt, true, true)
+	io.WriteString(w, "\n\n")
+
+	table.PrettyPrint(w, table.MetricsTable(s.metrics, time.Millisecond), true, false)
 }
 
 type perfOneResults []perfOneResult

@@ -14,17 +14,20 @@ import (
 
 	"ebay.com/protobeam/errors"
 	"ebay.com/protobeam/msg"
+	"ebay.com/protobeam/table"
 	"ebay.com/protobeam/view"
 	"ebay.com/protobeam/web"
 	"github.com/julienschmidt/httprouter"
+	"github.com/rcrowley/go-metrics"
 	"gopkg.in/Shopify/sarama.v1"
 )
 
-func New(addr string, src *view.Client, p sarama.SyncProducer) *Server {
+func New(addr string, mr metrics.Registry, src *view.Client, p sarama.SyncProducer) *Server {
 	return &Server{
 		addr:     addr,
 		source:   src,
 		producer: p,
+		metrics:  mr,
 	}
 }
 
@@ -32,6 +35,7 @@ type Server struct {
 	addr     string
 	source   *view.Client
 	producer sarama.SyncProducer
+	metrics  metrics.Registry
 }
 
 func (s *Server) Run() error {
@@ -70,10 +74,10 @@ func (s *Server) statsTable(w http.ResponseWriter, r *http.Request, _ httprouter
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain")
-	table := make([][]string, len(stats)+1)
-	table[0] = []string{"Partition", "# Keys", "# Txs", "At Index", "Heap MB", "Sys MB", "Num GC", "Total GC Pause ms"}
+	st := make([][]string, len(stats)+1)
+	st[0] = []string{"Partition", "# Keys", "# Txs", "At Index", "Heap MB", "Sys MB", "Num GC", "Total GC Pause ms"}
 	for r, s := range stats {
-		table[r+1] = []string{
+		st[r+1] = []string{
 			strconv.FormatUint(uint64(s.Partition), 10),
 			strconv.FormatUint(uint64(s.Keys), 10),
 			strconv.FormatUint(uint64(s.Txs), 10),
@@ -84,7 +88,7 @@ func (s *Server) statsTable(w http.ResponseWriter, r *http.Request, _ httprouter
 			strconv.FormatUint(s.MemStats.TotalPauseMs, 10),
 		}
 	}
-	prettyPrintTable(w, table, true, false)
+	table.PrettyPrint(w, st, true, false)
 }
 
 func (s *Server) sample(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -176,6 +180,12 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 }
 
 func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool, int64, error) {
+	mtFetch := metrics.GetOrRegisterTimer("api.concat.fetch", s.metrics)
+	mtWrite := metrics.GetOrRegisterTimer("api.concat.write", s.metrics)
+	mtCheck := metrics.GetOrRegisterTimer("api.concat.check", s.metrics)
+	mtDecide := metrics.GetOrRegisterTimer("api.concat.decide", s.metrics)
+	metricTm := time.Now()
+
 	var v1, v2 string
 	var idx1, idx2 int64
 	var err1, err2 error
@@ -190,6 +200,8 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		wg.Done()
 	}()
 	wg.Wait()
+	mtFetch.UpdateSince(metricTm)
+	metricTm = time.Now()
 	if err := errors.Any(err1, err2); err != nil {
 		return false, 0, fmt.Errorf("Unable to read starting values: %v", err)
 	}
@@ -210,6 +222,8 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		Topic: "beam",
 		Value: sarama.ByteEncoder(msgVal),
 	})
+	mtWrite.UpdateSince(metricTm)
+	metricTm = time.Now()
 	if err != nil {
 		return false, 0, fmt.Errorf("Unable to write tx message to log: %v", err)
 	}
@@ -242,6 +256,8 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		}
 	}()
 	wg2.Wait()
+	mtCheck.UpdateSince(metricTm)
+	metricTm = time.Now()
 
 	// for testing tx timeouts, allow the requester to delay the commit decision
 	if delayTx > 0 {
@@ -254,6 +270,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		Topic: "beam",
 		Value: sarama.ByteEncoder(txDecision),
 	})
+	mtDecide.UpdateSince(metricTm)
 	if err != nil {
 		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
 	}
