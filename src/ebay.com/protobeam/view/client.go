@@ -78,9 +78,23 @@ func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
 		}(idx)
 	}
 	wg.Wait()
-	res := samples[0]
-	for p := 1; p < len(c.p); p++ {
-		res = append(res, samples[p]...)
+	total := 0
+	for _, s := range samples {
+		total += len(s)
+	}
+	// ensure keys are not returned in partition order, so that a subslice of keys should cross partitions
+	res := make([]string, total)
+	ridx := 0
+	sidx := 0
+	for ridx < len(res) {
+		for _, s := range samples {
+			res[ridx] = s[sidx]
+			ridx++
+			if ridx == len(res) {
+				break
+			}
+		}
+		sidx++
 	}
 	return res, errors.Any(perrors...)
 }

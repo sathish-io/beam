@@ -9,7 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"ebay.com/protobeam/errors"
@@ -44,6 +44,7 @@ func (s *Server) Run() error {
 	m.POST("/concat", s.concat)
 	m.POST("/fill", s.fill)
 	m.GET("/sampleKeys", s.sample)
+	m.POST("/txPerf", s.txPerf)
 	m.NotFound = http.DefaultServeMux
 	logger := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[API] %v %v\n", r.Method, r.URL)
@@ -83,32 +84,7 @@ func (s *Server) statsTable(w http.ResponseWriter, r *http.Request, _ httprouter
 			strconv.FormatUint(s.MemStats.TotalPauseMs, 10),
 		}
 	}
-	prettyPrintTable(w, table)
-}
-
-func prettyPrintTable(w io.Writer, t [][]string) {
-	for c := range t[0] {
-		w := 0
-		for r := range t {
-			w = max(w, len(t[r][c]))
-		}
-		for r := range t {
-			t[r][c] = strings.Repeat(" ", w+1-len(t[r][c])) + t[r][c] + " |"
-		}
-	}
-	for _, r := range t {
-		for _, c := range r {
-			io.WriteString(w, c)
-		}
-		io.WriteString(w, "\n")
-	}
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	prettyPrintTable(w, table, true, false)
 }
 
 func (s *Server) sample(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -179,83 +155,109 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	k2 := r.URL.Query().Get("k2")
 	k3 := r.URL.Query().Get("k3")
 
-	v1, idx1, err1 := s.source.Fetch(k1)
-	v2, idx2, err2 := s.source.Fetch(k2)
-	if err := errors.Any(err1, err2); err != nil {
-		web.WriteError(w, http.StatusInternalServerError, "Error reading starting values: %v", err)
+	// for testing tx timeouts, allow the requester to delay the commit decision
+	wait := r.URL.Query().Get("w")
+	wt := 0
+	if wait != "" {
+		var err error
+		wt, err = strconv.Atoi(wait)
+		if err != nil {
+			fmt.Printf("Unable to parse w param value to a int [will use a default of 10 seconds]: %v\n", err)
+			wt = 10
+		}
+	}
+
+	commited, offset, err := s.concatTx(k1, k2, k3, time.Duration(wt)*time.Second)
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Unable to perform concat tx: %v", err)
 		return
+	}
+	fmt.Fprintf(w, "commited: %t offset: %d\n", commited, offset)
+}
+
+func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool, int64, error) {
+	var v1, v2 string
+	var idx1, idx2 int64
+	var err1, err2 error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		v1, idx1, err1 = s.source.Fetch(src1)
+		wg.Done()
+	}()
+	go func() {
+		v2, idx2, err2 = s.source.Fetch(src2)
+		wg.Done()
+	}()
+	wg.Wait()
+	if err := errors.Any(err1, err2); err != nil {
+		return false, 0, fmt.Errorf("Unable to read starting values: %v", err)
 	}
 	txMsg := msg.TransactionMessage{
 		Cond: []*msg.Condition{
-			&msg.Condition{Key: k1, Index: idx1},
-			&msg.Condition{Key: k2, Index: idx2},
+			&msg.Condition{Key: src1, Index: idx1},
+			&msg.Condition{Key: src2, Index: idx2},
 		},
 		Writes: []*msg.WriteKeyValueMessage{
-			&msg.WriteKeyValueMessage{Key: k3, Value: v1 + "+" + v2},
+			&msg.WriteKeyValueMessage{Key: dest, Value: v1 + "+" + v2},
 		},
 	}
 	msgVal, err := txMsg.Encode()
 	if err != nil {
-		web.WriteError(w, http.StatusInternalServerError, "Unable to construct Transacton Message: %v", err)
-		return
+		return false, 0, fmt.Errorf("Unable to construct tx message: %v", err)
 	}
-	fmt.Fprintf(w, "%s\n", msgVal)
-	kPart, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
+	_, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
 		Value: sarama.ByteEncoder(msgVal),
 	})
 	if err != nil {
-		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
-		return
+		return false, 0, fmt.Errorf("Unable to write tx message to log: %v", err)
 	}
-	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
 
-	var ok1, ok2, pending bool
-	for {
-		ok1, pending, err = s.source.Check(k1, idx1, offset+1)
-		// TODO, this should report an error after so many errors
-		if err == nil && !pending {
-			break
+	var ok1, ok2, pending1, pending2 bool
+	var wg2 sync.WaitGroup
+	wg2.Add(2)
+	go func() {
+		defer wg2.Done()
+		for {
+			ok1, pending1, err1 = s.source.Check(src1, idx1, offset+1)
+			// TODO, this should report an error after so many errors
+			if err1 == nil && !pending1 {
+				break
+			}
+			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src1)
+			time.Sleep(1 * time.Millisecond)
 		}
-		fmt.Printf("outcome pending another transaction on %v, sleeping\n", k1)
-		time.Sleep(1 * time.Second)
-	}
-	for ok1 {
-		ok2, pending, err = s.source.Check(k2, idx2, offset+1)
-		// TODO, this should report an error after so many errors
-		if err == nil && !pending {
-			break
+	}()
+	go func() {
+		defer wg2.Done()
+		for {
+			ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1)
+			// TODO, this should report an error after so many errors
+			if err2 == nil && !pending2 {
+				break
+			}
+			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src2)
+			time.Sleep(1 * time.Millisecond)
 		}
-		fmt.Printf("outcome pending another transaction on %v, sleeping\n", k1)
-		time.Sleep(1 * time.Second)
-	}
+	}()
+	wg2.Wait()
 
 	// for testing tx timeouts, allow the requester to delay the commit decision
-	wait := r.URL.Query().Get("w")
-	if wait != "" {
-		wt, err := strconv.Atoi(wait)
-		if err != nil {
-			fmt.Fprintf(w, "Unable to parse w param value to a int [will use a default of 10 seconds]: %v\n", err)
-			wt = 10
-		}
-		time.Sleep(time.Duration(wt) * time.Second)
+	if delayTx > 0 {
+		time.Sleep(delayTx)
 	}
-	commit := ok1 && ok2
-	if commit {
-		fmt.Fprintf(w, "committing\n")
-	} else {
-		fmt.Fprintf(w, "aborting\n")
-	}
+
+	commit := ok1 && ok2 && !pending1 && !pending2
 	txDecision, _ := msg.DecisionMessage{Tx: offset + 1, Commit: commit}.Encode()
-	kPart, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
+	_, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
 		Value: sarama.ByteEncoder(txDecision),
 	})
 	if err != nil {
-		web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
-		return
+		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
 	}
-	fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
+	return commit, offset + 1, nil
 }
 
 func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
