@@ -65,6 +65,17 @@ get stats in a nice readable table
              2 | 10000187 |     0 | 40401003 |    1329 |   3573 |    127 |               219 |
              3 | 10007324 |     0 | 40401003 |    1330 |   3240 |    127 |               263 |
 
+run a transaction perf test
+
+	$ curl 'http://localhost:9988/txPerf?...'
+	params
+	 d : duration of test in standard go time.Duration format, e.g. d=60s for a 60 second test
+	 n : number of concurrent requests
+	 p : <optional> if specified enables CPU profiling, the api host writes a tx.cpu profile, the partitions write a tx_<p>.cpu file.
+	 
+	 when complete the HTTP response will include a bunch of stats & metrics, see [txperf.md](txperf.md) for examples.
+
+
 ## Profiling
 
 all the endpoints expose the standard pprof debug endpoints, you can use those to generate CPU profiles, goroutine stack dumps etc.
