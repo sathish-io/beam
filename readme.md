@@ -72,7 +72,7 @@ run a transaction perf test
 params
  * d : duration of test in standard go time.Duration format, e.g. d=60s for a 60 second test
  * n : number of concurrent requests
- * p : <optional> if specified enables CPU profiling, the api host writes a tx.cpu profile, the partitions write a tx_<p>.cpu file.
+ * p : optional, if specified enables CPU profiling, the api host writes a tx.cpu profile, the partitions write a tx_{p}.cpu file.
  
  when complete the HTTP response will include a bunch of stats & metrics, see [txperf.md](txperf.md) for examples.
 
