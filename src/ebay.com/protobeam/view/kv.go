@@ -206,10 +206,12 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 	tx := transaction{
 		started: time.Now(),
 	}
-	for _, write := range body.Writes {
+	thisIndexes := make([]int, 0, 4)
+	for idx, write := range body.Writes {
 		if p.owns(write.Key) {
 			p.logf("Pending on transaction, adding %v = %v @ %d", write.Key, write.Value, pm.Index)
 			tx.keys = append(tx.keys, write.Key)
+			thisIndexes = append(thisIndexes, idx)
 		}
 	}
 	if len(tx.keys) == 0 {
@@ -217,11 +219,10 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 	}
 	p.logf("Processing transaction %+v @ %d", body, pm.Index)
 	p.transactions[pm.Index] = tx
-	for _, write := range body.Writes {
-		if p.owns(write.Key) {
-			p.values[write.Key] = append(p.values[write.Key],
-				value{index: pm.Index, value: write.Value, pending: true})
-		}
+	for _, widx := range thisIndexes {
+		write := body.Writes[widx]
+		p.values[write.Key] = append(p.values[write.Key],
+			value{index: pm.Index, value: write.Value, pending: true})
 	}
 }
 
@@ -236,7 +237,7 @@ func (p *Partition) applyDecision(pm msg.Parsed) {
 	if body.Commit {
 		for _, key := range tx.keys {
 			values := p.values[key]
-			for i := range values {
+			for i := len(values) - 1; i >= 0; i-- {
 				if values[i].index == body.Tx {
 					values[i].pending = false
 					break
@@ -246,7 +247,7 @@ func (p *Partition) applyDecision(pm msg.Parsed) {
 	} else {
 		for _, key := range tx.keys {
 			values := p.values[key]
-			for i := range values {
+			for i := len(values) - 1; i >= 0; i-- {
 				if values[i].index == body.Tx {
 					p.values[key] = append(values[:i], values[i+1:]...)
 					break
