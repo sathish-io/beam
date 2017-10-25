@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"sync"
@@ -25,11 +27,22 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		web.WriteError(w, http.StatusBadRequest, "Unable to parse concurrency param 'n': %v", err)
 		return
 	}
+	profile := r.URL.Query().Get("p") != ""
 	s.metrics.UnregisterAll() // start with a clean set of metrics
 	keys, err := s.source.SampleKeys(uint32(100) * uint32(n))
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to fetch starting keys: %v", err)
 		return
+	}
+	var pf *os.File
+	if profile {
+		pf, err = os.Create("tx.cpu")
+		if err != nil {
+			fmt.Printf("Unable to create file for Tx Profiling, skipping: %v\n", err)
+			pf = nil
+		} else {
+			pprof.StartCPUProfile(pf)
+		}
 	}
 	end := time.Now().Add(dur)
 	keyStart := 0
@@ -43,6 +56,10 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		keyStart = keyEnd
 	}
 	wg.Wait()
+	if pf != nil {
+		pprof.StopCPUProfile()
+	}
+
 	pt := make([][]string, n+2)
 	pt[0] = []string{"n", "Count", "Commits", "Aborts", "Errors", "p25", "p50", "p90", "p99"}
 	for idx, r := range res {
