@@ -16,19 +16,20 @@ message FetchRequest {
 
 message FetchResult {
 	int64  index  = 1;
-	bool   exists = 2;
 	string value  = 3;
+	bool   exists = 2;
 }
 
 message FetchAtRequest {
-	string key   = 1;
 	int64  index = 2;
+	string key   = 1;
 }
 
 message CheckRequest {
-	string key     = 1;
-	int64  start   = 2;
-	int64  through = 3;
+	int64  start    = 2;
+	int64  through  = 3;
+	string key      = 1;
+	uint32 waitTime = 4;	// if the resulting is pending, will wait/check internally this long before returning, time in seconds
 }
 
 message CheckResult {
@@ -40,10 +41,10 @@ message StatsRequest {
 }
 
 message StatsResult {
+	int64	lastIndex	= 4;
 	uint32 	partition 	= 1;
 	uint32 	keys		= 2;
 	uint32 	txs			= 3;
-	int64	lastIndex	= 4;
 	MemStats memStats	= 5;
 }
 

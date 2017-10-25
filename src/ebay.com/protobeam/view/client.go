@@ -68,13 +68,13 @@ func (c *Client) FetchAt(key string, idx int64) (string, int64, error) {
 	return res.Value, res.Index, nil
 }
 
-func (c *Client) Check(key string, start int64, through int64) (ok bool, pending bool, err error) {
+func (c *Client) Check(key string, start int64, through int64, timeWait uint32) (ok bool, pending bool, err error) {
 	mt := metrics.GetOrRegisterTimer("client.check", c.m)
 	startTm := time.Now()
 	defer mt.UpdateSince(startTm)
 
 	pc := c.viewClient(c.partition(key))
-	res, err := pc.Check(context.Background(), &CheckRequest{Key: key, Start: start, Through: through})
+	res, err := pc.Check(context.Background(), &CheckRequest{Key: key, Start: start, Through: through, WaitTime: timeWait})
 	if err != nil {
 		return false, false, err
 	}

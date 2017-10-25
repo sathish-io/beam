@@ -102,7 +102,7 @@ func (s *partitionServer) check(w http.ResponseWriter, r *http.Request, _ httpro
 	if through, ok = parseQSInt(w, r, "t"); !ok {
 		return
 	}
-	ok, pending := s.p.check(key, start, through)
+	ok, pending := s.p.check(key, start, through, time.Second)
 	res := checkResult{ok, pending}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(&res)

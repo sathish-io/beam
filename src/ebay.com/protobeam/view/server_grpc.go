@@ -50,7 +50,7 @@ func (s *serverGrpc) FetchAt(ctx context.Context, r *FetchAtRequest) (*FetchResu
 }
 
 func (s *serverGrpc) Check(ctx context.Context, r *CheckRequest) (*CheckResult, error) {
-	ok, pending := s.p.check(r.Key, r.Start, r.Through)
+	ok, pending := s.p.check(r.Key, r.Start, r.Through, time.Duration(r.WaitTime)*time.Second)
 	return &CheckResult{Ok: ok, Pending: pending}, nil
 }
 

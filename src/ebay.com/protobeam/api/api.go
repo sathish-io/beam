@@ -234,7 +234,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	go func() {
 		defer wg2.Done()
 		for {
-			ok1, pending1, err1 = s.source.Check(src1, idx1, offset+1)
+			ok1, pending1, err1 = s.source.Check(src1, idx1, offset+1, 3)
 			// TODO, this should report an error after so many errors
 			if err1 == nil && !pending1 {
 				break
@@ -246,7 +246,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	go func() {
 		defer wg2.Done()
 		for {
-			ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1)
+			ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1, 3)
 			// TODO, this should report an error after so many errors
 			if err2 == nil && !pending2 {
 				break

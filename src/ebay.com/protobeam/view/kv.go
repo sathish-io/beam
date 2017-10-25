@@ -32,6 +32,7 @@ func NewPartionServer(c sarama.Consumer, producer sarama.SyncProducer, httpBind 
 		httpBind:      httpBind,
 		metrics:       cfg.Metrics,
 	}
+	p.updateCond = sync.NewCond(p.lock.RLocker())
 	return &p, nil
 }
 
@@ -55,6 +56,7 @@ type Partition struct {
 	atIndex      int64                 // the index from the log we've processed [protected by lock]
 	values       map[string][]value    // [protected by lock]
 	transactions map[int64]transaction // [protected by lock]
+	updateCond   *sync.Cond            // a Condition that is signaled each time we've applied a chunk of log entries
 
 	httpBind      string
 	addr          string
@@ -174,7 +176,6 @@ func (p *Partition) apply(pms []msg.Parsed) {
 	p.lock.Lock()
 	tmLocked := time.Now()
 	mLockWait.Update(tmLocked.Sub(tmStart))
-	defer p.lock.Unlock()
 	for _, pm := range pms {
 		switch pm.MsgType {
 		case msg.Write:
@@ -186,6 +187,8 @@ func (p *Partition) apply(pms []msg.Parsed) {
 		}
 		p.atIndex = pm.Index
 	}
+	p.lock.Unlock()
+	p.updateCond.Broadcast()
 	mApply.UpdateSince(tmLocked)
 }
 
@@ -288,29 +291,43 @@ func (p *Partition) fetch(key string) (string, int64) {
 	return "", 0
 }
 
-func (p *Partition) check(key string, start int64, through int64) (ok bool, pending bool) {
+func (p *Partition) check(key string, start int64, through int64, waitIfPending time.Duration) (ok bool, pending bool) {
+	timeout := time.Now().Add(waitIfPending)
 	mLockWait := metrics.GetOrRegisterTimer("partition.check.lock.wait", p.metrics)
 	mCheck := metrics.GetOrRegisterTimer("partition.check.check", p.metrics)
+
 	tmStart := time.Now()
 	p.lock.RLock()
 	tmLocked := time.Now()
-	defer p.lock.RUnlock()
-
-	ok = true
-	pending = p.atIndex < through
-	versions := p.values[key]
-	for i := len(versions) - 1; i >= 0; i-- {
-		version := &versions[i]
-		if version.index > start && version.index < through {
-			ok = false
-			pending = pending || version.pending
-		}
-		if version.index < start {
-			break
-		}
-	}
-	mCheck.UpdateSince(tmLocked)
 	mLockWait.Update(tmLocked.Sub(tmStart))
+	defer p.lock.RUnlock()
+	defer mCheck.UpdateSince(tmLocked)
+
+	checkInner := func() (bool, bool) {
+		ok := true
+		pending := p.atIndex < through
+		if pending {
+			return false, pending // no point doing the rest
+		}
+		versions := p.values[key]
+		for i := len(versions) - 1; i >= 0; i-- {
+			version := &versions[i]
+			if version.index > start && version.index < through {
+				ok = false
+				pending = pending || version.pending
+			}
+			if version.index < start {
+				break
+			}
+		}
+		return ok, pending
+	}
+
+	ok, pending = checkInner()
+	for pending && time.Now().Before(timeout) {
+		p.updateCond.Wait()
+		ok, pending = checkInner()
+	}
 	return
 }
 
