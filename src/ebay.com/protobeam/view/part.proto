@@ -1,6 +1,9 @@
 syntax = "proto3";
 package view;
 
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "google/protobuf/duration.proto";
+
 service PartitionView {
 	rpc fetch(FetchRequest) returns (FetchResult) {}
 	rpc fetchAt(FetchAtRequest) returns (FetchResult) {}
@@ -8,6 +11,7 @@ service PartitionView {
 	rpc stats(StatsRequest) returns (StatsResult) {}
 	rpc sampleKeys(SampleKeysRequest) returns (SampleKeysResult) {}
 	rpc metrics(MetricsRequest) returns (MetricsResult) {}
+	rpc profile(ProfileRequest) returns (ProfileResult) {}
 }
 
 message FetchRequest {
@@ -26,10 +30,10 @@ message FetchAtRequest {
 }
 
 message CheckRequest {
-	int64  start    = 2;
-	int64  through  = 3;
-	string key      = 1;
-	uint32 waitTime = 4;	// if the resulting is pending, will wait/check internally this long before returning, time in seconds
+	int64  					 start    = 2;
+	int64  					 through  = 3;
+	string 					 key      = 1;
+	google.protobuf.Duration waitTime = 4 [(gogoproto.stdduration)=true, (gogoproto.nullable)=false]; // if the resulting is pending, will wait/check internally this long before returning
 }
 
 message CheckResult {
@@ -71,4 +75,12 @@ message MetricsResult {
 		repeated string cells = 1;
 	}
 	repeated Row rows = 1;
+}
+
+message ProfileRequest {
+	google.protobuf.Duration duration = 1 [(gogoproto.stdduration)=true, (gogoproto.nullable)=false];
+	string	 				 filename = 2;
+}
+
+message ProfileResult {
 }

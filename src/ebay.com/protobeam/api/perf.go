@@ -42,6 +42,9 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 			pf = nil
 		} else {
 			pprof.StartCPUProfile(pf)
+			for i := 0; i < s.source.NumPartitions(); i++ {
+				s.source.Profile(i, fmt.Sprintf("tx_%d.cpu", i), dur+(time.Second/10))
+			}
 		}
 	}
 	end := time.Now().Add(dur)

@@ -3,6 +3,8 @@ package view
 import (
 	"fmt"
 	"net"
+	"os"
+	"runtime/pprof"
 	"time"
 
 	"ebay.com/protobeam/table"
@@ -72,4 +74,19 @@ func (s *serverGrpc) Metrics(ctx context.Context, r *MetricsRequest) (*MetricsRe
 		res.Rows[i] = &MetricsResult_Row{Cells: tr}
 	}
 	return &res, nil
+}
+
+func (s *serverGrpc) Profile(ctx context.Context, r *ProfileRequest) (*ProfileResult, error) {
+	f, err := os.Create(r.Filename)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Starting CPU profiling, to %s for %s\n", f.Name(), r.Duration)
+	pprof.StartCPUProfile(f)
+	go func() {
+		time.Sleep(r.Duration)
+		pprof.StopCPUProfile()
+		fmt.Printf("Completed CPU profile to %s\n", f.Name())
+	}()
+	return &ProfileResult{}, nil
 }

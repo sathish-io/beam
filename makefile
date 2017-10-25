@@ -50,7 +50,7 @@ beam.pb.go: beam.proto
 	PATH=${ROOT}/bin:${PATH} protoc --gogoslick_out=src/ebay.com/protobeam/msg -I src/ebay.com/protobeam/msg beam.proto
 
 part.pb.go: part.proto
-	PATH=${ROOT}/bin:${PATH} protoc --gogoslick_out=plugins=grpc:src/ebay.com/protobeam/view -I src/ebay.com/protobeam/view part.proto
+	PATH=${ROOT}/bin:${PATH} protoc --gogoslick_out=plugins=grpc:src/ebay.com/protobeam/view -I src/vendor -I src/ebay.com/protobeam/view part.proto
 			
 build: beam.pb.go part.pb.go
 	go install ${PACKAGE}/...

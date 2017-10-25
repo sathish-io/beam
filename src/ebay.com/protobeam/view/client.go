@@ -68,7 +68,7 @@ func (c *Client) FetchAt(key string, idx int64) (string, int64, error) {
 	return res.Value, res.Index, nil
 }
 
-func (c *Client) Check(key string, start int64, through int64, timeWait uint32) (ok bool, pending bool, err error) {
+func (c *Client) Check(key string, start int64, through int64, timeWait time.Duration) (ok bool, pending bool, err error) {
 	mt := metrics.GetOrRegisterTimer("client.check", c.m)
 	startTm := time.Now()
 	defer mt.UpdateSince(startTm)
@@ -133,6 +133,11 @@ func (c *Client) Metrics(p int) ([][]string, error) {
 		t[i] = r.Cells
 	}
 	return t, nil
+}
+
+func (c *Client) Profile(p int, fn string, dur time.Duration) error {
+	_, err := c.viewClient(p).Profile(context.Background(), &ProfileRequest{Filename: fn, Duration: dur})
+	return err
 }
 
 func (c *Client) Stats() ([]StatsResult, error) {
