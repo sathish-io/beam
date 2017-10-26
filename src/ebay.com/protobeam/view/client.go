@@ -174,6 +174,56 @@ func (c *Client) Stats() ([]StatsResult, error) {
 	return results, err
 }
 
+type KeyVersionStat struct {
+	Versions uint32
+	Keys     uint32
+}
+
+func (c *Client) KeyStats(bucketSize uint32) ([]KeyVersionStat, error) {
+	type pres struct {
+		val map[uint32]uint32
+		err error
+	}
+	resCh := make(chan pres)
+	statsReq := &KeyStatsRequest{BucketSize: bucketSize}
+	for p := 0; p < len(c.cfg.Partitions); p++ {
+		go func(p int) {
+			s, err := c.viewClient(p).KeyStats(context.Background(), statsReq)
+			if err != nil {
+				resCh <- pres{err: err}
+			} else {
+				resCh <- pres{val: s.VersionCounts}
+			}
+		}(p)
+	}
+	var res map[uint32]uint32
+	var err error
+	for p := 0; p < len(c.cfg.Partitions); p++ {
+		r := <-resCh
+		if r.err != nil {
+			err = r.err
+		} else {
+			if len(res) == 0 {
+				res = r.val
+			} else {
+				for k, v := range r.val {
+					res[k] += v
+				}
+			}
+		}
+	}
+	orderedRes := make([]KeyVersionStat, len(res))
+	i := 0
+	for k, v := range res {
+		orderedRes[i] = KeyVersionStat{k, v}
+		i++
+	}
+	sort.Slice(orderedRes, func(a, b int) bool {
+		return orderedRes[a].Versions < orderedRes[b].Versions
+	})
+	return orderedRes, err
+}
+
 func (c *Client) partition(key string) int {
 	return int(hash(key, uint32(len(c.cfg.Partitions))))
 }

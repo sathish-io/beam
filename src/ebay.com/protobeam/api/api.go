@@ -49,12 +49,36 @@ func (s *Server) Run() error {
 	m.POST("/fill", s.fill)
 	m.GET("/sampleKeys", s.sample)
 	m.POST("/txPerf", s.txPerf)
+	m.GET("/keyStats", s.keyStats)
 	m.NotFound = http.DefaultServeMux
 	logger := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[API] %v %v\n", r.Method, r.URL)
 		m.ServeHTTP(w, r)
 	}
 	return http.ListenAndServe(s.addr, http.HandlerFunc(logger))
+}
+
+func (s *Server) keyStats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	bucketSize := 10
+	qsBucketSize := r.URL.Query().Get("sz")
+	if qsBucketSize != "" {
+		var err error
+		bucketSize, err = strconv.Atoi(qsBucketSize)
+		if err != nil {
+			web.WriteError(w, http.StatusBadRequest, "Failed to parse bucketsize param 'sz': %v\n", err)
+			return
+		}
+	}
+	stats, err := s.source.KeyStats(uint32(bucketSize))
+	if err != nil {
+		web.WriteError(w, http.StatusInternalServerError, "Failed to fetch key stats: %v\n", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "# Versions, # Keys\n")
+	for _, ks := range stats {
+		fmt.Fprintf(w, "%10d, %d\n", ks.Versions, ks.Keys)
+	}
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
