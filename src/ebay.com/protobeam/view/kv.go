@@ -172,10 +172,10 @@ func (p *Partition) timeoutTransactions(now time.Time) {
 func (p *Partition) apply(pms []msg.Parsed) {
 	mLockWait := metrics.GetOrRegisterTimer("partition.apply.lock.wait", p.metrics)
 	mApply := metrics.GetOrRegisterTimer("parition.apply.chunk", p.metrics)
+	mApplySize := metrics.GetOrRegisterTimer("partition.apply.size", p.metrics) // not really a timer
 	tmStart := time.Now()
 	p.lock.Lock()
 	tmLocked := time.Now()
-	mLockWait.Update(tmLocked.Sub(tmStart))
 	for _, pm := range pms {
 		switch pm.MsgType {
 		case msg.Write:
@@ -189,7 +189,10 @@ func (p *Partition) apply(pms []msg.Parsed) {
 	}
 	p.lock.Unlock()
 	p.updateCond.Broadcast()
+
 	mApply.UpdateSince(tmLocked)
+	mLockWait.Update(tmLocked.Sub(tmStart))
+	mApplySize.Update(time.Duration(len(pms)))
 }
 
 func (p *Partition) applyWrite(pm msg.Parsed) {
