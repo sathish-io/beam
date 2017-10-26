@@ -78,8 +78,8 @@ params
 
 
 get a summary of number of versions for keys.
- * below there are 4393254 keys with less than 10 versions], use the 'sz' param to change the version's bucket size (default is 10)
 
+below there are 4393254 keys with less than 10 versions], use the 'sz' param to change the version's bucket size (default is 10)
 
 	$ curl 'http://localhost:9988/keyStats'
 	
