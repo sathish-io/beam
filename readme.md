@@ -77,6 +77,16 @@ params
  when complete the HTTP response will include a bunch of stats & metrics, see [txperf.md](txperf.md) for examples.
 
 
+get a summary of number of versions for keys [i.e. below there are 4393254 keys with less than 10 versions], use the 'sz' param to change the version's bucket size (default is 10)
+
+	$ curl 'http://localhost:9988/keyStats'
+	
+	# Versions, # Keys
+    		10, 4393254
+       	   120, 2211
+           130, 99
+
+
 ## Profiling
 
 all the endpoints expose the standard pprof debug endpoints, you can use those to generate CPU profiles, goroutine stack dumps etc.
