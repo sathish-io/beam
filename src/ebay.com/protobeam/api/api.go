@@ -292,7 +292,8 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	}
 
 	commit := ok1 && ok2 && !pending1 && !pending2
-	txDecision, _ := msg.DecisionMessage{Tx: offset + 1, Commit: commit}.Encode()
+	decision := msg.DecisionMessage{Tx: offset + 1, Commit: commit}
+	txDecision, _ := decision.Encode()
 	_, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
 		Value: sarama.ByteEncoder(txDecision),
@@ -307,6 +308,10 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	if err != nil {
 		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
 	}
+	// see if we can get tx applied sooner by doing a direct RPC
+	// this might beat the log.
+	s.source.DecideTx([]string{dest}, decision)
+
 	return commit, offset + 1, nil
 }
 

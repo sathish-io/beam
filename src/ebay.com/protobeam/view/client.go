@@ -7,6 +7,7 @@ import (
 
 	"ebay.com/protobeam/config"
 	"ebay.com/protobeam/errors"
+	"ebay.com/protobeam/msg"
 	"github.com/rcrowley/go-metrics"
 	context "golang.org/x/net/context"
 	grpc "google.golang.org/grpc"
@@ -81,6 +82,20 @@ func (c *Client) Check(key string, start int64, through int64, timeWait time.Dur
 		return false, false, err
 	}
 	return res.Ok, res.Pending, nil
+}
+
+func (c *Client) DecideTx(keys []string, d msg.DecisionMessage) error {
+	partitions := make(map[int]bool, len(c.cfg.Partitions))
+	for _, k := range keys {
+		partitions[c.partition(k)] = true
+	}
+	var err error
+	for p := range partitions {
+		if _, perr := c.viewClient(p).DecideTx(context.Background(), &DecideTxRequest{d}); perr != nil {
+			err = perr
+		}
+	}
+	return err
 }
 
 func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {

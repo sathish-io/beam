@@ -56,6 +56,12 @@ func (s *serverGrpc) Check(ctx context.Context, r *CheckRequest) (*CheckResult, 
 	return &CheckResult{Ok: ok, Pending: pending}, nil
 }
 
+// DecideTx let a client indicate a tx result without waiting for the log to catch up.
+func (s *serverGrpc) DecideTx(ctx context.Context, r *DecideTxRequest) (*DecideTxResult, error) {
+	s.p.rpcDecideTx(&r.Dec)
+	return &DecideTxResult{}, nil
+}
+
 func (s *serverGrpc) Stats(ctx context.Context, r *StatsRequest) (*StatsResult, error) {
 	return s.p.Stats(), nil
 }

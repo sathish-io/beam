@@ -229,14 +229,28 @@ func (p *Partition) applyTransaction(pm msg.Parsed) {
 	}
 }
 
+func (p *Partition) rpcDecideTx(d *msg.DecisionMessage) {
+	p.lock.Lock()
+	beatLog := p.decide(d)
+	p.lock.Unlock()
+	m := metrics.GetOrRegisterCounter("partition.decide.rpc.beat.log", p.metrics)
+	if beatLog {
+		m.Inc(1)
+	}
+}
+
 func (p *Partition) applyDecision(pm msg.Parsed) {
 	body := pm.Body.(*msg.DecisionMessage)
+	p.decide(body)
+}
+
+func (p *Partition) decide(body *msg.DecisionMessage) bool {
 	tx, exists := p.transactions[body.Tx]
 	if !exists {
-		return
+		return false
 	}
 	delete(p.transactions, body.Tx)
-	p.logf("Processing decision %+v @ %d of %v\n", body, pm.Index, tx)
+	p.logf("Processing decision %+v of %v\n", body, tx)
 	if body.Commit {
 		for _, key := range tx.keys {
 			values := p.values[key]
@@ -258,6 +272,7 @@ func (p *Partition) applyDecision(pm msg.Parsed) {
 			}
 		}
 	}
+	return true
 }
 
 func (p *Partition) fetchAt(key string, idx int64) (string, int64) {

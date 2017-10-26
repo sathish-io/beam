@@ -3,16 +3,20 @@ package view;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
+import "ebay.com/protobeam/msg/beam.proto";
 
 service PartitionView {
 	rpc fetch(FetchRequest) returns (FetchResult) {}
 	rpc fetchAt(FetchAtRequest) returns (FetchResult) {}
 	rpc check(CheckRequest) returns (CheckResult) {}
-	rpc stats(StatsRequest) returns (StatsResult) {}
+	rpc decideTx(DecideTxRequest) returns (DecideTxResult) {}
+
 	rpc sampleKeys(SampleKeysRequest) returns (SampleKeysResult) {}
+	rpc keyStats(KeyStatsRequest) returns (KeyStatsResult) {}
+	rpc stats(StatsRequest) returns (StatsResult) {}
+
 	rpc metrics(MetricsRequest) returns (MetricsResult) {}
 	rpc profile(ProfileRequest) returns (ProfileResult) {}
-	rpc keyStats(KeyStatsRequest) returns (KeyStatsResult) {}
 }
 
 message FetchRequest {
@@ -92,4 +96,11 @@ message KeyStatsRequest {
 
 message KeyStatsResult {
 	map<uint32, uint32> versionCounts = 1;	// # of versions in a key -> count of keys with that many versions
+}
+
+message DecideTxRequest {
+	msg.DecisionMessage dec = 1 [(gogoproto.nullable)=false];
+}
+
+message DecideTxResult {
 }
