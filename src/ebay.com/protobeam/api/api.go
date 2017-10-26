@@ -23,12 +23,14 @@ import (
 )
 
 func New(addr string, mr metrics.Registry, src *view.Client, p sarama.SyncProducer) *Server {
-	return &Server{
+	s := &Server{
 		addr:     addr,
 		source:   src,
 		producer: p,
 		metrics:  mr,
 	}
+	s.resetMetrics()
+	return s
 }
 
 type Server struct {
@@ -36,6 +38,19 @@ type Server struct {
 	source   *view.Client
 	producer sarama.SyncProducer
 	metrics  metrics.Registry
+
+	mtFetch  metrics.Timer
+	mtWrite  metrics.Timer
+	mtCheck  metrics.Timer
+	mtDecide metrics.Timer
+}
+
+func (s *Server) resetMetrics() {
+	s.metrics.UnregisterAll()
+	s.mtFetch = metrics.GetOrRegisterTimer("api.concat.1.fetch", s.metrics)
+	s.mtWrite = metrics.GetOrRegisterTimer("api.concat.2.write", s.metrics)
+	s.mtCheck = metrics.GetOrRegisterTimer("api.concat.3.check", s.metrics)
+	s.mtDecide = metrics.GetOrRegisterTimer("api.concat.4.decide", s.metrics)
 }
 
 func (s *Server) Run() error {
@@ -204,28 +219,21 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 }
 
 func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool, int64, error) {
-	mtFetch := metrics.GetOrRegisterTimer("api.concat.fetch", s.metrics)
-	mtWrite := metrics.GetOrRegisterTimer("api.concat.write", s.metrics)
-	mtCheck := metrics.GetOrRegisterTimer("api.concat.check", s.metrics)
-	mtDecide := metrics.GetOrRegisterTimer("api.concat.decide", s.metrics)
-	metricTm := time.Now()
+	tmStart := time.Now()
 
 	var v1, v2 string
 	var idx1, idx2 int64
 	var err1, err2 error
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		v1, idx1, err1 = s.source.Fetch(src1)
 		wg.Done()
 	}()
-	go func() {
-		v2, idx2, err2 = s.source.Fetch(src2)
-		wg.Done()
-	}()
+	v2, idx2, err2 = s.source.Fetch(src2)
 	wg.Wait()
-	mtFetch.UpdateSince(metricTm)
-	metricTm = time.Now()
+	tmPostFetch := time.Now()
+
 	if err := errors.Any(err1, err2); err != nil {
 		return false, 0, fmt.Errorf("Unable to read starting values: %v", err)
 	}
@@ -246,15 +254,14 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		Topic: "beam",
 		Value: sarama.ByteEncoder(msgVal),
 	})
-	mtWrite.UpdateSince(metricTm)
-	metricTm = time.Now()
+	tmPostWrite := time.Now()
 	if err != nil {
 		return false, 0, fmt.Errorf("Unable to write tx message to log: %v", err)
 	}
 
 	var ok1, ok2, pending1, pending2 bool
 	var wg2 sync.WaitGroup
-	wg2.Add(2)
+	wg2.Add(1)
 	go func() {
 		defer wg2.Done()
 		for {
@@ -267,21 +274,17 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 			time.Sleep(100 * time.Microsecond)
 		}
 	}()
-	go func() {
-		defer wg2.Done()
-		for {
-			ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1, 3*time.Second)
-			// TODO, this should report an error after so many errors
-			if err2 == nil && !pending2 {
-				break
-			}
-			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src2)
-			time.Sleep(100 * time.Microsecond)
+	for {
+		ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1, 3*time.Second)
+		// TODO, this should report an error after so many errors
+		if err2 == nil && !pending2 {
+			break
 		}
-	}()
+		//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src2)
+		time.Sleep(100 * time.Microsecond)
+	}
 	wg2.Wait()
-	mtCheck.UpdateSince(metricTm)
-	metricTm = time.Now()
+	tmPostCheck := time.Now()
 
 	// for testing tx timeouts, allow the requester to delay the commit decision
 	if delayTx > 0 {
@@ -294,7 +297,13 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		Topic: "beam",
 		Value: sarama.ByteEncoder(txDecision),
 	})
-	mtDecide.UpdateSince(metricTm)
+	tmPostDecide := time.Now()
+	go func() {
+		s.mtFetch.Update(tmPostFetch.Sub(tmStart))
+		s.mtWrite.Update(tmPostWrite.Sub(tmPostFetch))
+		s.mtCheck.Update(tmPostCheck.Sub(tmPostWrite))
+		s.mtDecide.Update(tmPostDecide.Sub(tmPostCheck))
+	}()
 	if err != nil {
 		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
 	}

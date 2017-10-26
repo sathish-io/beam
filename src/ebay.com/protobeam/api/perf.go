@@ -28,7 +28,7 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		return
 	}
 	profile := r.URL.Query().Get("p") != ""
-	s.metrics.UnregisterAll() // start with a clean set of metrics
+	s.resetMetrics() // start with a clean set of metrics
 	keys, err := s.source.SampleKeys(uint32(100) * uint32(n))
 	if err != nil {
 		web.WriteError(w, http.StatusInternalServerError, "Unable to fetch starting keys: %v", err)
@@ -62,6 +62,7 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	if pf != nil {
 		pprof.StopCPUProfile()
 	}
+	time.Sleep(time.Second) // hack: give a chance for all the async metric reporting to complete
 
 	pt := make([][]string, n+2)
 	pt[0] = []string{"n", "Count", "Commits", "Aborts", "Errors", "p25", "p50", "p90", "p99"}
