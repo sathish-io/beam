@@ -387,3 +387,19 @@ func hash(k string, sz uint32) uint32 {
 	r := fnv1a.HashString64(k)
 	return uint32(r % uint64(sz))
 }
+
+// keyStats returns a map of # versions -> number of keys with that # of versions.
+func (p *Partition) keyStats(bucketSize uint32) map[uint32]uint32 {
+	r := make(map[uint32]uint32, 8)
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	for _, v := range p.values {
+		b := bucketize(uint32(len(v)), bucketSize)
+		r[b]++
+	}
+	return r
+}
+
+func bucketize(val uint32, bucketSize uint32) uint32 {
+	return ((val + bucketSize) / bucketSize) * bucketSize
+}

@@ -12,6 +12,7 @@ service PartitionView {
 	rpc sampleKeys(SampleKeysRequest) returns (SampleKeysResult) {}
 	rpc metrics(MetricsRequest) returns (MetricsResult) {}
 	rpc profile(ProfileRequest) returns (ProfileResult) {}
+	rpc keyStats(KeyStatsRequest) returns (KeyStatsResult) {}
 }
 
 message FetchRequest {
@@ -83,4 +84,12 @@ message ProfileRequest {
 }
 
 message ProfileResult {
+}
+
+message KeyStatsRequest {
+	uint32 bucketSize = 1;
+}
+
+message KeyStatsResult {
+	map<uint32, uint32> versionCounts = 1;	// # of versions in a key -> count of keys with that many versions
 }

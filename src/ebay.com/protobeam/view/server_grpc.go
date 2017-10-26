@@ -90,3 +90,8 @@ func (s *serverGrpc) Profile(ctx context.Context, r *ProfileRequest) (*ProfileRe
 	}()
 	return &ProfileResult{}, nil
 }
+
+func (s *serverGrpc) KeyStats(ctx context.Context, r *KeyStatsRequest) (*KeyStatsResult, error) {
+	stats := s.p.keyStats(r.BucketSize)
+	return &KeyStatsResult{stats}, nil
+}
