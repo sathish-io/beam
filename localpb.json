@@ -1,9 +1,9 @@
 {
 	"brokers" : [ "localhost:9092" ],
 	"partitions" : [
-		"localhost:9980",
-		"localhost:9981",
-		"localhost:9982",
-		"localhost:9983"
+		"localhost:9970",
+		"localhost:9971",
+		"localhost:9972",
+		"localhost:9973"
 	]
 }
