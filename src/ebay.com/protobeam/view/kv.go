@@ -128,6 +128,7 @@ func (p *Partition) start() {
 
 		case now := <-txTimeoutTimer.C:
 			p.timeoutTransactions(now)
+			p.updateCond.Broadcast()
 		}
 	}
 }
@@ -344,6 +345,8 @@ func (p *Partition) check(key string, start int64, through int64, waitIfPending 
 
 	ok, pending = checkInner()
 	for pending && time.Now().Before(timeout) {
+		// bah, there's not Wait(withTimeout), so the main select loop reading from
+		// kafka will regularly poke this even if it got no new messages.
 		p.updateCond.Wait()
 		ok, pending = checkInner()
 	}
