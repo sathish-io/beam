@@ -127,15 +127,23 @@ func (c *Client) SampleKeys(maxKeys uint32) ([]string, error) {
 	res := make([]string, total)
 	ridx := 0
 	sidx := 0
+outerLoop:
 	for ridx < len(res) {
+		done := true
 		for _, s := range samples {
-			res[ridx] = s[sidx]
-			ridx++
-			if ridx == len(res) {
-				break
+			if len(s) > sidx {
+				res[ridx] = s[sidx]
+				ridx++
+				done = false
+				if ridx == len(res) {
+					break outerLoop
+				}
 			}
 		}
 		sidx++
+		if done { // consumed all the samples we got from the partitions
+			break
+		}
 	}
 	return res, errors.Any(perrors...)
 }
