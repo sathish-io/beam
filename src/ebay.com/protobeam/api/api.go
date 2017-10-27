@@ -263,25 +263,15 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	var wg2 sync.WaitGroup
 	wg2.Add(1)
 	go func() {
-		defer wg2.Done()
-		for {
-			ok1, pending1, err1 = s.source.Check(src1, idx1, offset+1, 3*time.Second)
-			// TODO, this should report an error after so many errors
-			if err1 == nil && !pending1 {
-				break
-			}
-			//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src1)
-			time.Sleep(100 * time.Microsecond)
+		ok1, pending1, err1 = s.source.Check(src1, idx1, offset+1, 5*time.Second)
+		if pending1 {
+			err1 = fmt.Errorf("Timeout Check() on key %v", src1)
 		}
+		wg2.Done()
 	}()
-	for {
-		ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1, 3*time.Second)
-		// TODO, this should report an error after so many errors
-		if err2 == nil && !pending2 {
-			break
-		}
-		//			fmt.Printf("outcome pending another transaction on %v, sleeping\n", src2)
-		time.Sleep(100 * time.Microsecond)
+	ok2, pending2, err2 = s.source.Check(src2, idx2, offset+1, 5*time.Second)
+	if pending2 {
+		err2 = fmt.Errorf("Timedout Check on key %v", src2)
 	}
 	wg2.Wait()
 	tmPostCheck := time.Now()
@@ -294,7 +284,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	commit := ok1 && ok2 && !pending1 && !pending2
 	decision := msg.DecisionMessage{Tx: offset + 1, Commit: commit}
 	txDecision, _ := decision.Encode()
-	_, offset, err = s.producer.SendMessage(&sarama.ProducerMessage{
+	_, offset, errWriteDesc := s.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: "beam",
 		Value: sarama.ByteEncoder(txDecision),
 	})
@@ -305,14 +295,17 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 		s.mtCheck.Update(tmPostCheck.Sub(tmPostWrite))
 		s.mtDecide.Update(tmPostDecide.Sub(tmPostCheck))
 	}()
-	if err != nil {
+	if errWriteDesc != nil {
 		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
 	}
 	// see if we can get tx applied sooner by doing a direct RPC
 	// this might beat the log.
+	// the current txPerf test hwoever doesn't overlap any keys, so this won't
+	// move the needle on the numbers in that test, the reported metrics however
+	// from a run will indicate how many times the rpc request beat the log entry
 	s.source.DecideTx([]string{dest}, decision)
 
-	return commit, offset + 1, nil
+	return commit, offset + 1, errors.Any(err1, err2)
 }
 
 func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
