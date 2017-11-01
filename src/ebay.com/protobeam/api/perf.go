@@ -27,6 +27,7 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		web.WriteError(w, http.StatusBadRequest, "Unable to parse concurrency param 'n': %v", err)
 		return
 	}
+	overlap := r.URL.Query().Get("o") != ""
 	profile := r.URL.Query().Get("p") != ""
 	s.resetMetrics() // start with a clean set of metrics
 	keys, err := s.source.SampleKeys(uint32(100) * uint32(n))
@@ -55,8 +56,12 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 		wg.Add(1)
 		keyEnd := keyStart + 100
 		r := &res[i]
-		go s.txPerfOne(keys[keyStart:keyEnd], end, r, &wg)
-		keyStart = keyEnd
+		go s.txPerfOne(keys, keyStart, keyEnd, end, r, &wg)
+		if !overlap {
+			keyStart = keyEnd
+		} else {
+			keyStart = keyStart + 25
+		}
 	}
 	wg.Wait()
 	if pf != nil {
@@ -69,10 +74,12 @@ func (s *Server) txPerf(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	for idx, r := range res {
 		pt[idx+1] = r.results(strconv.Itoa(idx))
 	}
-	pt[len(pt)-1] = res.totals().results("Totals")
+	totals := res.totals()
+	pt[len(pt)-1] = totals.results("Totals")
 
 	w.Header().Set("Content-Type", "text/plain")
 	table.PrettyPrint(w, pt, true, true)
+	fmt.Fprintf(w, "\nAggregate Tx Rate: %d/sec\n", len(totals.times)/int((dur/time.Second)))
 	io.WriteString(w, "\n\n")
 
 	table.PrettyPrint(w, table.MetricsTable(s.metrics, time.Millisecond), true, false)
@@ -142,12 +149,13 @@ func (r *perfOneResult) consume(dur time.Duration, commited bool, err error) {
 	r.times = append(r.times, dur)
 }
 
-func (s *Server) txPerfOne(keys []string, until time.Time, res *perfOneResult, wg *sync.WaitGroup) {
+func (s *Server) txPerfOne(keys []string, kStart, kEnd int, until time.Time, res *perfOneResult, wg *sync.WaitGroup) {
 	defer wg.Done()
+	keys = keys[kStart:kEnd]
 	keyIdx := 0
 	for time.Now().Before(until) {
 		st := time.Now()
-		commited, _, err := s.writeTx(keys[keyIdx], "A Value would go here", keys[keyIdx+1:keyIdx+2])
+		commited, _, err := s.writeTx(keys[keyIdx], "A Value would go here", keys[keyIdx+1:keyIdx+3])
 		res.consume(time.Now().Sub(st), commited, err)
 		keyIdx += 3
 		if keyIdx > len(keys)-3 {

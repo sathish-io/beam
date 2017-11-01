@@ -43,6 +43,9 @@ func MetricsTable(r metrics.Registry, scale time.Duration) [][]string {
 				fmt.Sprintf("%f%s", ps[4]/du, suffix),
 				fmt.Sprintf("%f%s", float64(t.Max())/du, suffix),
 			)
+		case metrics.Gauge:
+			t := metric.Snapshot()
+			addRow(n, strconv.FormatInt(t.Value(), 10))
 		case metrics.Counter:
 			t := metric.Snapshot()
 			addRow(n, strconv.FormatInt(t.Count(), 10))

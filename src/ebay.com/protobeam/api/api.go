@@ -43,6 +43,8 @@ type Server struct {
 	mtWrite  metrics.Timer
 	mtCheck  metrics.Timer
 	mtDecide metrics.Timer
+
+	mtReadKeys metrics.Gauge
 }
 
 func (s *Server) resetMetrics() {
@@ -51,6 +53,7 @@ func (s *Server) resetMetrics() {
 	s.mtWrite = metrics.GetOrRegisterTimer("api.concat.2.write", s.metrics)
 	s.mtCheck = metrics.GetOrRegisterTimer("api.concat.3.check", s.metrics)
 	s.mtDecide = metrics.GetOrRegisterTimer("api.concat.4.decide", s.metrics)
+	s.mtReadKeys = metrics.GetOrRegisterGauge("api.writeTx.readKeys.len", s.metrics)
 }
 
 func (s *Server) Run() error {
@@ -221,6 +224,7 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 // write val to key dest if all the read keys haven't changed since the start
 func (s *Server) writeTx(dest, val string, readKeys []string) (bool, int64, error) {
 	//	tmStart := time.Now()
+	s.mtReadKeys.Update(int64(len(readKeys)))
 
 	readIdx := make([]int64, len(readKeys))
 	readErrs := make([]error, len(readKeys))
