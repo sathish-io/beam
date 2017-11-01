@@ -218,6 +218,66 @@ func (s *Server) concat(w http.ResponseWriter, r *http.Request, _ httprouter.Par
 	fmt.Fprintf(w, "commited: %t offset: %d\n", commited, offset)
 }
 
+// write val to key dest if all the read keys haven't changed since the start
+func (s *Server) writeTx(dest, val string, readKeys []string) (bool, int64, error) {
+	//	tmStart := time.Now()
+
+	readIdx := make([]int64, len(readKeys))
+	readErrs := make([]error, len(readKeys))
+	var wg sync.WaitGroup
+	wg.Add(len(readKeys))
+	for idx, k := range readKeys {
+		go func(idx int, k string) {
+			_, readIdx[idx], readErrs[idx] = s.source.Fetch(k)
+			wg.Done()
+		}(idx, k)
+	}
+	if err := errors.Any(readErrs...); err != nil {
+		return false, 0, fmt.Errorf("Unable to read starting values: %v", err)
+	}
+	txMsg := msg.TransactionMessage{
+		Writes: []*msg.WriteKeyValueMessage{
+			&msg.WriteKeyValueMessage{Key: dest, Value: val},
+		},
+	}
+	msgVal, err := txMsg.Encode()
+	if err != nil {
+		return false, 0, fmt.Errorf("Unable to encode tx message: %v", err)
+	}
+	_, offset, err := s.producer.SendMessage(&sarama.ProducerMessage{Topic: "beam", Value: sarama.ByteEncoder(msgVal)})
+	if err != nil {
+		return false, 0, fmt.Errorf("Unable to send writeTx msg: %v", err)
+	}
+	readOk := make([]bool, len(readKeys))
+	readPending := make([]bool, len(readKeys))
+	var wg2 sync.WaitGroup
+	wg2.Add(len(readKeys))
+	for idx, k := range readKeys {
+		go func(idx int, k string) {
+			readOk[idx], readPending[idx], readErrs[idx] = s.source.Check(k, readIdx[idx], offset+1, time.Second*5)
+			wg2.Done()
+		}(idx, k)
+	}
+	wg2.Wait()
+	commit := true
+	for idx := range readOk {
+		commit = commit && readOk[idx] && !readPending[idx] && (readErrs[idx] == nil)
+	}
+	decision := msg.DecisionMessage{Tx: offset + 1, Commit: commit}
+	txDecision, _ := decision.Encode()
+	_, offset, errWriteDesc := s.producer.SendMessage(&sarama.ProducerMessage{
+		Topic: "beam",
+		Value: sarama.ByteEncoder(txDecision),
+	})
+	if errWriteDesc != nil {
+		return false, 0, fmt.Errorf("Unable to write commit decision to log: %v", err)
+	}
+	// see if we can get tx applied sooner by doing a direct RPC
+	// this might beat the log.
+	s.source.DecideTx([]string{dest}, decision)
+	return commit, offset + 1, nil
+}
+
 func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool, int64, error) {
 	tmStart := time.Now()
 
@@ -308,7 +368,7 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	return commit, offset + 1, errors.Any(err1, err2)
 }
 
-func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func (s *Server) fill(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	n := 1
 	ns := r.URL.Query().Get("n")
 	if ns != "" {
@@ -347,6 +407,7 @@ func (s *Server) fill(w http.ResponseWriter, r *http.Request, _ httprouter.Param
 		total += <-countCh
 	}
 	fmt.Fprintf(w, "Created total %d keys\n", total)
+	s.statsTable(w, r, p)
 }
 
 func (s *Server) fetch(w http.ResponseWriter, r *http.Request, p httprouter.Params) {

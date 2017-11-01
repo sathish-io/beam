@@ -147,7 +147,7 @@ func (s *Server) txPerfOne(keys []string, until time.Time, res *perfOneResult, w
 	keyIdx := 0
 	for time.Now().Before(until) {
 		st := time.Now()
-		commited, _, err := s.concatTx(keys[keyIdx], keys[keyIdx+1], keys[keyIdx+2], 0)
+		commited, _, err := s.writeTx(keys[keyIdx], "A Value would go here", keys[keyIdx+1:keyIdx+3])
 		res.consume(time.Now().Sub(st), commited, err)
 		keyIdx += 3
 		if keyIdx > len(keys)-3 {
