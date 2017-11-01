@@ -232,6 +232,7 @@ func (s *Server) writeTx(dest, val string, readKeys []string) (bool, int64, erro
 			wg.Done()
 		}(idx, k)
 	}
+	wg.Wait()
 	if err := errors.Any(readErrs...); err != nil {
 		return false, 0, fmt.Errorf("Unable to read starting values: %v", err)
 	}
