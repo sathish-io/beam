@@ -368,45 +368,74 @@ func (s *Server) concatTx(src1, src2, dest string, delayTx time.Duration) (bool,
 	return commit, offset + 1, errors.Any(err1, err2)
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func (s *Server) fill(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+	const chunkSize = 1000
+	const maxConcurent = 400
 	n := 1
+	total := chunkSize
 	ns := r.URL.Query().Get("n")
 	if ns != "" {
 		n, _ = strconv.Atoi(ns)
+		total = n * chunkSize
+	} else {
+		ts := r.URL.Query().Get("t")
+		if ts != "" {
+			total, _ = strconv.Atoi(ts)
+			n = min(maxConcurent, total/chunkSize+1)
+		}
 	}
 	countCh := make(chan int, n)
+	workCh := make(chan int, n)
+	go func() {
+		for d := 0; d < total; {
+			c := min(chunkSize, total-d)
+			workCh <- c
+			d += c
+		}
+		close(workCh)
+	}()
 	for i := 0; i < n; i++ {
 		go func() {
 			success := 0
 			defer func() {
 				countCh <- success
 			}()
-			for i := 0; i < 1000; i++ {
-				key := fmt.Sprintf("key-%08x", rand.Int31())
-				value := fmt.Sprintf("value-%08x", rand.Int31())
-				msgVal, err := msg.WriteKeyValueMessage{Key: key, Value: value}.Encode()
-				if err != nil {
-					web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
-					return
+			var wkv msg.WriteKeyValueMessage
+			for chunk := range workCh {
+				for i := 0; i < chunk; i++ {
+					wkv.Key = fmt.Sprintf("key-%08x", rand.Int31())
+					wkv.Value = fmt.Sprintf("value-%08x", rand.Int31())
+					msgVal, err := wkv.Encode()
+					if err != nil {
+						web.WriteError(w, http.StatusInternalServerError, "Unable to encode message: %v", err)
+						return
+					}
+					_, _, err = s.producer.SendMessage(&sarama.ProducerMessage{
+						Topic: "beam",
+						Value: sarama.ByteEncoder(msgVal),
+					})
+					if err != nil {
+						web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
+						return
+					}
+					success++
+					//fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
 				}
-				_, _, err = s.producer.SendMessage(&sarama.ProducerMessage{
-					Topic: "beam",
-					Value: sarama.ByteEncoder(msgVal),
-				})
-				if err != nil {
-					web.WriteError(w, http.StatusInternalServerError, "Unable to write to Kafka: %v", err)
-					return
-				}
-				success++
-				//fmt.Fprintf(w, "kPart %v offset %v\n", kPart, offset)
 			}
 		}()
 	}
-	total := 0
+	resTotal := 0
 	for i := 0; i < n; i++ {
-		total += <-countCh
+		resTotal += <-countCh
 	}
-	fmt.Fprintf(w, "Created total %d keys\n", total)
+	fmt.Fprintf(w, "Created total %d keys\n", resTotal)
 	s.statsTable(w, r, p)
 }
 
