@@ -40,6 +40,8 @@ func main() {
 	kconfig.Producer.RequiredAcks = sarama.WaitForAll // Wait for all in-sync replicas to ack the message
 	kconfig.Producer.Retry.Max = 10                   // Retry up to 10 times to produce the message
 	kconfig.Producer.Return.Successes = true
+	kconfig.Consumer.Return.Errors = true
+
 	kc, err := sarama.NewClient(cfg.BrokerList, kconfig)
 	if err != nil {
 		log.Fatalf("Unable to create Kafka client: %v", err)

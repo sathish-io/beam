@@ -126,6 +126,9 @@ func (p *Partition) start() {
 			acc(km)
 			buffPending()
 
+		case kerr := <-p.consumer.Errors():
+			fmt.Printf("Error reading from consumer: %v\n", kerr)
+
 		case now := <-txTimeoutTimer.C:
 			p.timeoutTransactions(now)
 			p.updateCond.Broadcast()
