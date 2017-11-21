@@ -2,6 +2,13 @@
 
 Follow [Kafka quick start](https://kafka.apache.org/quickstart) to install kafka, start ZK & Kafka.
 
+# Kafka Settings
+
+There's an [issue](https://github.com/Shopify/sarama/issues/962) related to concurrent large writes and Kafka getting confused about message formats that cause a consumer problem down stream. 
+This can be addressed by adding `log.message.format.version=0.10.2` to the server.properties file for kafka.
+
+# build / run
+
 Make sure you've got protoc installed, `brew install protobuf`
 
 Create a 1 partition beam topic
